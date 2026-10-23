@@ -39,6 +39,7 @@ from lib.episode.episode_paths import (
     episode_script_filename,
 )
 from lib.infra.content_digest import canonical_json_digest
+from lib.infra.data_root_layout import PROJECT_FILENAME
 from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.infra.path_safety import try_safe_join
 from lib.infra.validation_messages import default_translate
@@ -389,6 +390,7 @@ def write_formal_script_plan_locked(
     dependent_quarantine: str | None = None,
     clear_dependent_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
+    project_update: Callable[[dict[str, Any]], None] | None = None,
 ) -> bool:
     """任一变体正式 script_plan 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清作废的
     下游草稿。返回内容是否发生变化。
@@ -408,14 +410,31 @@ def write_formal_script_plan_locked(
     drama / narration script_plan 没有下游草稿，传 None）。它随本文件一并进事务：写盘失败时两者都
     按字节回滚，不会留下「正式文件是旧的、草稿已被清掉」的半场。基底真的变了才作废它——迁移回写是机械
     格式收编、不是内容编辑，调用方传 ``clear_dependent_quarantine=False`` 保留。
+
+    ``project_update`` 是规划落地时随 script_plan 一并落盘的对 project.json 的就地修改（如参考生视频
+    模式把本集新增资产登记进资产表）。它与 script_plan 在同一把 ``project_metadata_lock``、同一
+    ``formal_write_transaction`` 内完成：既对齐 drama 模式 ``save_script`` 的 ``project_update`` 语义，
+    又避免另行持锁造成死锁，且 project.json 与 script_plan 共享同一回滚集、不会留下半场提交。
     """
     assert_base_fingerprint(path, expected_fingerprint)
     previous = load_json_or_none(path)
     changed = previous != content
     quarantine = None if dependent_quarantine is None else quarantine_path(project_path, episode, dependent_quarantine)
-    paths = (path,) if quarantine is None else (path, quarantine)
+    paths: list[Path] = [path]
+    if quarantine is not None:
+        paths.append(quarantine)
+    # project.json 随 script_plan 同事务落盘：进回滚集、持同一把项目锁，绝不另行持锁。
+    if project_update is not None:
+        paths.append(project_path / PROJECT_FILENAME)
     with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
         atomic_write_json(path, content)
+        if project_update is not None:
+            project_file = project_path / PROJECT_FILENAME
+            project = load_json_or_none(project_file)
+            if project is None:
+                project = {}
+            project_update(project)
+            atomic_write_json(project_file, project)
         if changed and clear_dependent_quarantine and dependent_quarantine is not None:
             # 内容变了才清，提交后由事务按内容变化记账
             clear_quarantine(project_path, episode, dependent_quarantine, record_activity=False)
@@ -430,6 +449,7 @@ def write_script_plan_locked(
     expected_fingerprint: str | _UncheckedFingerprint | None = UNCHECKED_FINGERPRINT,
     clear_prompt_authoring_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
+    project_update: Callable[[dict[str, Any]], None] | None = None,
 ) -> bool:
     """参考生视频正式 script_plan 的写盘出口（``write_formal_script_plan_locked`` 绑定该变体路径与其
     下游 prompt_authoring 草稿的具名入口）。"""
@@ -442,6 +462,7 @@ def write_script_plan_locked(
         dependent_quarantine=QUARANTINE_KIND_PROMPT_AUTHORING,
         clear_dependent_quarantine=clear_prompt_authoring_quarantine,
         basis=basis,
+        project_update=project_update,
     )
 
 

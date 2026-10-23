@@ -71,6 +71,7 @@ from lib.script.plan_new_assets import (
     dedupe_new_assets,
     new_asset_violations,
     planning_project,
+    resolve_new_assets,
     with_new_assets,
 )
 from lib.script.prompt_authoring_scope import PromptOverwriteRequired, prompt_overwrite_with_text
@@ -89,7 +90,7 @@ from lib.script.reference_video.script_preview import (
     derive_voice_bindings,
     unit_lacks_scene_reference,
 )
-from lib.script.reference_video.text_parser import extract_mentions
+from lib.script.reference_video.text_parser import extract_mentions, speech_speaker_references
 from lib.script.reference_video.unit_capabilities import hydrate_reference_units
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_generator import (
@@ -293,6 +294,7 @@ def _commit_generated_reference_script_plan(
     expected_fingerprint: str | None,
     basis: ArtifactBasis,
     before_commit: Callable[[], None] | None = None,
+    project_update: Callable[[dict[str, Any]], None] | None = None,
 ) -> None:
     if before_commit is not None:
         before_commit()
@@ -311,6 +313,7 @@ def _commit_generated_reference_script_plan(
             content,
             expected_fingerprint=expected_fingerprint,
             basis=basis,
+            project_update=project_update,
         )
         clear_quarantine(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
 
@@ -1599,6 +1602,77 @@ def collect_narration_violations(
     return violations
 
 
+def _backfill_new_assets_from_units(new_assets: list, flat_units: list, project: dict) -> list:
+    """兜底：从 units 正文提取未登记引用并补登为 register 项。
+
+    reference_video 模式下，新项目的资产登记表（characters/scenes/props）往往为空，模板要求
+    模型把候选表外的所有引用写进 ``new_assets``。但模型未必每次都列全，一旦漏列任一引用，
+    ``unregistered_asset`` 会让整批规划被拒收——这是强依赖模型完美执行的脆弱点。
+
+    本函数把正文里出现、却既未在项目登记表、也未在模型产出的 ``new_assets`` 中现身的引用名
+    自动补登为 ``register`` 项，使校验通过、规划不再因漏列而失败。类型按引用位置推断：
+    说话人位 ``@[X]{台词}`` → character，画面位的 ``@[X]`` → scene。模型已显式处理（无论
+    register/merge/skip）的名字不覆盖。
+    """
+    catalog = build_reference_catalog(project)
+    covered: set[str] = set()
+    for asset_type in ASSET_SPECS:
+        covered |= {asset_name_comparison_key(n) for n in catalog.reference_names(asset_type)}
+    for item in new_assets:
+        name = item.get("name")
+        if isinstance(name, str) and name:
+            covered.add(asset_name_comparison_key(name))
+
+    # 先跨全部 unit 汇总，再判定类型：只要在任一 unit 的说话人位出现过就按角色登记，纯画面位出现
+    # 的按场景登记。聚合后再判定可避免「先出现于画面、后出现于说话人」被按 unit 顺序判成场景；
+    # 同一 unit 内既说话又出现在画面（`@[X]` 与 `@[X]{台词}` 并存）时也以角色为准。
+    speaker_names: dict[str, str] = {}
+    visual_names: dict[str, str] = {}
+    for unit in flat_units:
+        if not isinstance(unit, dict):
+            continue
+        text = unit.get("text")
+        if not isinstance(text, str) or "@" not in text:
+            continue
+        for raw in speech_speaker_references(text):
+            key = asset_name_comparison_key(raw)
+            if key and key not in covered:
+                speaker_names.setdefault(key, key)
+        for raw in extract_mentions(text):
+            key = asset_name_comparison_key(raw)
+            if key and key not in covered:
+                visual_names.setdefault(key, key)
+
+    backfill: list[dict] = []
+    for key in speaker_names:
+        backfill.append(
+            {
+                "type": "character",
+                "name": key,
+                "decision": "register",
+                "reason": "从 unit 说话人位自动补登",
+                "description": "",
+                "voice_style": "",
+            }
+        )
+    for key in visual_names:
+        if key in speaker_names:
+            # 任一 unit 里说过话 → 按角色登记，不再重复登记成场景。
+            continue
+        backfill.append(
+            {
+                "type": "scene",
+                "name": key,
+                "decision": "register",
+                "reason": "从 unit 场景引用自动补登",
+                "description": "",
+            }
+        )
+    if not backfill:
+        return new_assets
+    return new_assets + backfill
+
+
 async def generate_reference_script_plan(
     request: TextGenerationRequest,
     *,
@@ -1683,6 +1757,12 @@ async def generate_reference_script_plan(
         if not isinstance(flat_units, list) or not flat_units:
             raise ValueError("script_plan 拆分内容结构异常：units 必须是非空的 unit 对象数组")
         new_assets = dedupe_new_assets(flat[NEW_ASSETS_FIELD])
+        # 兜底：模型可能漏列候选表外的资产（新项目 asset 表为空时全部需在 new_assets 登记），
+        # 从 units 正文提取未登记引用并补登为 register 项，避免 unregistered_asset 整批拒收。
+        new_assets = _backfill_new_assets_from_units(new_assets, flat_units, project)
+        # 解析为本集新增资产的落地决议：commit 时经 project_update 把登记项写进 project.json
+        # （对齐 drama 模式 save_script 的 project_update 语义），使资产表与规划一起落盘、不再永不回写。
+        new_assets_resolved = resolve_new_assets(project, new_assets)
 
         violations = await asyncio.to_thread(
             collect_reference_flat_violations,
@@ -1738,6 +1818,7 @@ async def generate_reference_script_plan(
                     formal_baseline,
                     script_plan_basis,
                     before_commit,
+                    new_assets_resolved.apply_to_project,
                 )
             except script_review.ScriptPlanWriteConflict as exc:
                 raise TextGenerationError(

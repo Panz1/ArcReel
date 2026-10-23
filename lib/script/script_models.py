@@ -1179,13 +1179,24 @@ def with_new_assets_field(model: type[BaseModel]) -> type[BaseModel]:
     )
 
 
-def build_reference_units_script_plan_model(supported_durations: list[int]) -> type[BaseModel]:
+def build_reference_units_script_plan_model(
+    supported_durations: list[int],
+    *,
+    require_new_assets: bool = False,
+) -> type[BaseModel]:
     """构造 unit 时长被 ``supported_durations`` 枚举硬约束的参考生视频 script_plan 模型（扁平形状）。
 
     unit 是一次生成调用的单元，拆分阶段决定的就是发给供应商的那个秒数，故枚举约束加在
     ``ReferenceScriptPlanFlatUnit.duration_seconds`` 上（response_schema 渲染为 enum / const，LLM
     生成层即被卡死），与 prompt_authoring 同口径衔接：prompt_authoring 沿用 script_plan 的 unit 时长，只做提示词编写。
     参考图数上限与文本内语法依赖运行时能力值 / 项目登记表，不进 schema，由拆分工具后校验。
+
+    ``require_new_assets`` 只在**请求侧**置真：基类的 ``new_assets`` 带
+    ``default_factory=list``（可选），结构化输出下可选字段最容易被模型整段省略——而提示词明确
+    要求「认不出的资产列进 ``new_assets``、没有就写空数组 ``[]``」。模型从不输出该字段时，
+    资产表为空的**新项目**里每个 ``@[名]`` 都会判成未登记，规划被整批拒收。置真后该字段变必填，
+    模型必须显式给出（空数组也要写）。解析侧仍用默认的可选形状：模型万一还是漏写，走默认空表 +
+    调用侧的兜底补登，而不是把一份内容完好的产出判成「结构校验失败」。
 
     prompt_authoring 无对应工厂：它不产出时长，没有需要按能力收窄的枚举字段，直接用静态
     ``ReferencePromptAuthoringFlatScript``。
@@ -1195,8 +1206,16 @@ def build_reference_units_script_plan_model(supported_durations: list[int]) -> t
         _duration_literal(supported_durations),
         "该单元时长（秒），必须取 supported_durations 中的值",
     )
+    fields: dict[str, Any] = {
+        "units": (_list_of(unit), Field(min_length=1, description="按叙事顺序排列的 unit 列表")),
+    }
+    if require_new_assets:
+        fields["new_assets"] = (
+            list[PlanNewAsset],
+            Field(description="本集引用的、尚未登记的角色 / 场景 / 道具及其处理决定；没有时输出空数组 []"),
+        )
     return create_model(
         "ReferenceScriptPlanFlatDraft",
         __base__=ReferenceScriptPlanFlatDraft,
-        units=(_list_of(unit), Field(min_length=1, description="按叙事顺序排列的 unit 列表")),
+        **fields,
     )

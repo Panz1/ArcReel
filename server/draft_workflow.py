@@ -48,6 +48,7 @@ from lib.script.draft_quarantine import (
 )
 from lib.script.draft_violation import DraftViolation, schema_violations
 from lib.script.plan_new_assets import NEW_ASSETS_FIELD, dedupe_new_assets, planning_project, with_new_assets
+from lib.script.reference_video.asset_backfill import backfill_new_assets_from_units
 from lib.script.script_generator import ScriptGenerator
 from lib.script.script_models import (
     NarrationScriptPlanDraft,
@@ -285,6 +286,10 @@ async def revalidate_reference_script_plan_draft(
         else:
             flat_units = flat["units"]
             new_assets = dedupe_new_assets(flat[NEW_ASSETS_FIELD])
+            # 与拆分产出同一道兜底：草稿里的 new_assets 可能被模型漏列、也可能在 Agent 修补时被
+            # 删掉，而正文里的引用还在。不补登就会「生成时能过、晋升时被判未登记」，同一份草稿
+            # 换个入口得到相反结论。补登项随晋升写进正式 script_plan，并在确认时落到资产表。
+            new_assets = backfill_new_assets_from_units(new_assets, flat_units, project)
     if violations:
         return ReferenceDraftRevalidation(
             violations, [], split_caps, schema_failed=True, basis=script_plan_basis, soft_violations=[], new_assets=[]

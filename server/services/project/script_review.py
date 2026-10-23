@@ -594,7 +594,10 @@ class ScriptReviewService:
             except ValidationError as exc:
                 raise ScriptReviewError("invalid_content", str(exc)) from exc
             try:
-                resolve_new_assets(project, validated.model_dump().get(NEW_ASSETS_FIELD))
+                # 确认时顺带把草稿声明的新增资产落地，与拆分产出时的 project_update 同一语义：
+                # 只校验不落地的话，经 Agent 修补 / 导入得到的草稿晋升后资产表仍是空的，下一次
+                # 拆分又要重新补登一遍，而且引用过的人在资产阶段会缺条目。
+                new_assets_resolution = resolve_new_assets(project, validated.model_dump().get(NEW_ASSETS_FIELD))
             except NewAssetsError as exc:
                 raise ScriptReviewError("invalid_new_assets", str(exc)) from exc
 
@@ -620,7 +623,12 @@ class ScriptReviewService:
                 # 单一写盘出口（已持同一把 per-path 锁，不再套 script_plan_write_lock）；同临界区
                 # 读改写无并发窗口，不做基线比对。内容真的变了时，prompt_authoring 草稿的基底随之
                 # 失效，由出口按变更清理。
-                script_review.write_script_plan_locked(project_path, episode, dumped)
+                script_review.write_script_plan_locked(
+                    project_path,
+                    episode,
+                    dumped,
+                    project_update=new_assets_resolution.apply_to_project,
+                )
                 fingerprint = script_review.content_fingerprint_of_data(dumped)
             else:
                 # 指纹从校验通过的 content 派生，不二次读盘：确认记录须对应这里校验过的内容。

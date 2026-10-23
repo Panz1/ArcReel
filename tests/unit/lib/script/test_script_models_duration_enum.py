@@ -203,6 +203,28 @@ class TestReferenceUnitsScriptPlanModel:
         draft = self._model().model_validate({"units": [self._unit()]})
         assert draft.model_dump()["units"][0]["duration_seconds"] == 6
 
+    def test_parse_schema_keeps_new_assets_optional(self):
+        """解析侧保持可选：模型漏写 ``new_assets`` 时走默认空表 + 兜底补登，而不是把内容完好的产出
+        判成「结构校验失败」。"""
+        schema = self._model().model_json_schema()
+        assert "new_assets" in schema["properties"]
+        assert "new_assets" not in schema.get("required", [])
+        assert self._model().model_validate({"units": [self._unit()]}).model_dump()["new_assets"] == []
+
+    def test_request_schema_requires_new_assets(self):
+        """请求侧必填：可选字段在结构化输出下最容易被模型整段省略，而资产表为空的新项目里每个
+        ``@[名]`` 都要靠它登记，漏写即整批判未登记。"""
+        from lib.script.script_models import build_reference_units_script_plan_model
+
+        model = build_reference_units_script_plan_model([4, 6, 8], require_new_assets=True)
+        assert "new_assets" in model.model_json_schema().get("required", [])
+        with pytest.raises(ValidationError):
+            model.model_validate({"units": [self._unit()]})
+        # 必填说的是「必须显式给出」，不是「必须有新增」：空数组同样合法。
+        assert (
+            model.model_validate({"units": [self._unit()], "new_assets": []}).model_dump()["new_assets"] == []
+        )
+
     def test_out_of_set_duration_rejected(self):
         with pytest.raises(ValidationError):
             self._model().model_validate({"units": [self._unit(duration_seconds=5)]})

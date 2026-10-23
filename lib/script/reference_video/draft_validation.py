@@ -55,28 +55,37 @@ SPEECH_OVERFLOW_TOLERANCE = 0.20
 
 
 def _normalize_for_anchor(text: str) -> str:
-    """Unicode NFC 归一后把连续空白折叠为单个空格，只消除编码与空白差异，不删除空白本身。
+    """Unicode NFC 归一后**删除全部空白**，把比对收敛到「字」这一层。
 
-    与 narration 覆盖校验的 ``_normalize_for_coverage`` 同一口径：模型复制原文时换行与
-    缩进的还原不可靠，但删字改字必须被抓住。NFC 与 ``lib.episode.episode_ledger.normalize_source_text``
-    定义的源文坐标系一致——带组合附加符的语种（如 vi）源文可能以 NFD 落盘、模型回写 NFC，
-    纯编码形式差异不该被判成改写。
+    空白在中文源文里是排版而非内容：小说与剧本普遍是「一行一拍」排版（每句台词、每个动作各占
+    一行，行间还夹空行），而 unit 的锚必然横跨多行——模型按语义复制时把相邻行直接接上，不会在
+    接缝处凭空补一个空格。此前「把连续空白折叠为单个空格」的口径会要求锚在接缝处也有空白，
+    于是**任何跨行锚都被判成改写**（实测：源文 ``…半杯。\\n赵磊：…`` 折叠成 ``半杯。 赵磊``，
+    锚是 ``半杯。赵磊``，子串不成立），把逐字复制出来的正确产出整批拒收。
+
+    删空白后仍能抓住任何**字**的增删改（含词内字母），丢掉的只是「词间空白位置」这一种差异；
+    而空白位置既不是内容、也不是模型有动机去改动的东西。NFC 与
+    ``lib.episode.episode_ledger.normalize_source_text`` 定义的源文坐标系一致——带组合附加符的语种
+    （如 vi）源文可能以 NFD 落盘、模型回写 NFC，纯编码形式差异不该被判成改写。
     """
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
+    return re.sub(r"\s+", "", unicodedata.normalize("NFC", text))
 
 
 def is_verbatim_source_anchor(source_text: str, novel_text: str) -> bool:
-    """``source_text`` 在空白归一后是否为源文的逐字子串（空锚不算命中）。"""
+    """``source_text`` 删除空白后是否为源文的逐字子串（空锚不算命中）。"""
     anchor = _normalize_for_anchor(source_text)
     return bool(anchor) and anchor in _normalize_for_anchor(novel_text)
 
 
 def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -> None:
-    """校验 ``source_text`` 是源文的逐字子串（空白归一后）。
+    """校验 ``source_text`` 是源文的逐字子串（删除空白后）。
 
     script_plan 的 unit 边界要能追溯回原文，锚失配意味着模型在拆分时改写或杜撰了原文——这是内容
     层的根本违约，比任何下游画面问题都更早需要被拦下。只判子串、不判顺序与完整覆盖：unit
     是画面单元不是朗读单元，允许原文中的对话提示语、转述段落不进任何 unit 的锚。
+
+    判定只认字：换行、空行、空格一律不计（见 :func:`_normalize_for_anchor`）。违约消息因此明写
+    「字要一模一样、空白不计」，免得修复方来回在锚里补空格。
     """
     anchor = _normalize_for_anchor(source_text)
     if not anchor:
@@ -88,7 +97,8 @@ def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -
     if not is_verbatim_source_anchor(source_text, novel_text):
         raise DraftViolation(
             f"{label} 的 source_text 不是小说原文的逐字片段（存在改写、翻译或杜撰）："
-            f"{source_text.strip()[:40]!r}；请原样复制原文，不要转述",
+            f"{source_text.strip()[:40]!r}；请原样复制原文、不要转述（换行与空格不计，"
+            "但字必须一模一样；本集源文里没有的情节不要写进锚）",
             code="source_text_not_verbatim",
             label=label,
         )

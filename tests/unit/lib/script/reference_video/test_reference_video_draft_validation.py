@@ -10,6 +10,7 @@ from lib.script.reference_video.draft_validation import (
     DraftViolations,
     assert_dialogue_preserved,
     dialogue_speakers,
+    is_verbatim_source_anchor,
     normative_lines,
     validate_dialogue_load,
     validate_source_text_anchor,
@@ -42,10 +43,31 @@ class TestSourceTextAnchor:
         )
 
     def test_whitespace_differences_tolerated(self):
-        """空白折叠后比对：换行 / 缩进的还原不可靠，但删字改字必须被抓住。"""
+        """空白不计：换行 / 缩进的还原不可靠，但删字改字必须被抓住。"""
         assert (
             validate_source_text_anchor("unit E1U01", "李明推开\n  酒馆的门", "李明推开 酒馆的门，环视四周。") is None
         )
+
+    def test_anchor_spanning_lines_without_separator_accepted(self):
+        """源文一拍一行时，锚把相邻两行直接接上（接缝处没有空白）也必须判逐字。
+
+        回归：曾经的口径是「连续空白折叠成一个空格」，源文 ``…半杯。\\n赵磊：…`` 折成
+        ``半杯。 赵磊``、锚是 ``半杯。赵磊``，子串不成立——多行锚因此**一律**被判成改写，
+        逐字复制出来的正确产出被整批拒收。空白不是内容，删掉再比即可。
+        """
+        novel = "赵磊端起酒杯，一口喝掉半杯。\n\n赵磊：我是真不想在城里混了！\n"
+        assert validate_source_text_anchor("unit E1U01", "赵磊端起酒杯，一口喝掉半杯。赵磊：我是真不想", novel) is None
+        assert is_verbatim_source_anchor("赵磊端起酒杯，一口喝掉半杯。赵磊：我是真不想", novel)
+
+    def test_anchor_beyond_source_rejected_even_without_whitespace(self):
+        """空白不计不等于放行杜撰：源文之外的情节（如大纲里的一幕）仍须被拒。"""
+        novel = "赵磊一拍桌子。\n\n赵磊：行！反正我也不想干了，回村就回村！\n"
+        with pytest.raises(DraftViolation, match="不是小说原文的逐字片段"):
+            validate_source_text_anchor(
+                "unit E1U01",
+                "赵磊一拍桌子。赵磊：行！反正我也不想干了，回村就回村！三人在村口偶遇苏晚",
+                novel,
+            )
 
     def test_unicode_form_differences_tolerated(self):
         """源文以 NFD 落盘、模型回写 NFC（组合附加符语种常见）不算改写：两侧先归一到 NFC。"""

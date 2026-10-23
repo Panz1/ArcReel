@@ -11,11 +11,11 @@ uv run python scripts/gate.py --changed            # 按相对 origin/main 的�
 uv run python scripts/gate.py backend frontend     # 或直接点名域；各域的触发路径与步骤见 --list
 ```
 
-相关测试必须实际运行且通过。新增或升级依赖：`docs/agents/dependencies.md`。启动开发服务器、数据库迁移与提交规范：`CONTRIBUTING.md`。
+相关测试必须实际运行且通过。收尾前，检查本次是否出过值得改进环境的错，判据与记录方式见 `docs/agents/lessons.md`「收尾自查」。新增或升级依赖：`docs/agents/dependencies.md`。启动开发服务器、数据库迁移与提交规范：`CONTRIBUTING.md`。
 
 ## Code Review Rules
 
-写代码或审查 diff 时，按 `CODING_STANDARDS.md` 的索引读取改动路径命中的规范；审查时引用「文件 + 规则标题」报告违规。
+审查 diff 时，按 `CODING_STANDARDS.md` 的索引读取改动路径命中的规范，引用「文件 + 规则标题」报告违规。
 
 ## 架构
 
@@ -23,5 +23,6 @@ uv run python scripts/gate.py backend frontend     # 或直接点名域；各域
 
 ## Agent skills
 
+- 找用户：向用户提问或请示前，以及处置超出当前范围的发现时，读 `docs/agents/escalation.md`。
 - 领域文档（`GLOSSARY.md` + `docs/adr/`）的使用方式：`docs/agents/domain.md`。
 - 项目 schema 迁移：新增或修改 `lib/project/project_migrations/` 的迁移步、改动产物补录规划器时读 `docs/agents/project-migrations.md`。

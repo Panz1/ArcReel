@@ -9,5 +9,6 @@
 - **文档站 TypeScript 上限是 6.x。** 升级 TypeScript 前先核对 `typescript-eslint` 的 peer 范围与文档站构建链的兼容性。
 - **后端 `anthropic` SDK 锁在 0.x。** 1.x 的 HTTP 层改用 `httpx2`：测试用的 respx（`tests/http_capture.py`）只拦截 `httpx`，调用端点在 HTTP transport 层改写请求路径的做法也基于 `httpx`，两者都接不上 1.x。解锁条件：respx 支持 `httpx2`，且仓库内 Python 调用端点共用的 HTTP 客户端与 transport 迁到 `httpx2`（`openai` 等 SDK 同步迁移）。
 - **`pyproject.toml` 与 `frontend/package.json` 的 `version` 字段视为只读**，由发版工具自动维护，开发者不手改。
+- **shadcn 原语随依赖升级。** 升级 npm 包不会重新生成 `frontend/src/components/ui/*.tsx`。`@base-ui/react` 与 `shadcn` 的 minor、patch 升级随依赖升级一起处理；major 升级单独进行，对已安装组件逐个运行 `pnpm exec shadcn add <组件> --diff`，手动合并上游改动，保留带注释说明的本地改动。遇到原语缺陷时，先用 `add --diff` 确认上游是否已经修复。
 
 - **供应商图标只使用 `@lobehub/icons/es/*/components/{Color,Mono}` 的独立 SVG 入口。** `frontend/package.json` 的定向 override 排除该包的 `@lobehub/ui` peer；这些入口只依赖 React，不使用其 UI 组件，避免自动引入另一套 UI 与动效依赖。若改用 Avatar、组合入口或其他依赖 `@lobehub/ui` 的组件，先复核此约束。

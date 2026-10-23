@@ -464,20 +464,74 @@ def resolve_new_assets(project: Mapping[str, Any], raw_items: object) -> NewAsse
     return _Resolver(project, raw_items).resolve()
 
 
+#: decision 取这两种时 ``description`` 是必填的：登记项与衍生项都要落进项目资产表当作出图依据。
+_DESCRIPTION_REQUIRED_DECISIONS = frozenset({"register", "derivative"})
+#: ``description`` 短于此字数等同没写——「一个男人」「玉佩」这类连单句都算不上，出图必然跑偏。
+_MIN_ASSET_DESCRIPTION_CHARS = 8
+
+#: 兜底补登项的 ``reason`` 标记（由 ``reference_video.asset_backfill`` 写入）。
+#:
+#: 这类项是系统为了「引用合法」自动补出来的，模型从未为它们给过外观依据；把它们的空描述也判
+#: 成违约，等于让兜底自己把整集卡在无法晋升的状态。豁免它们，代价是资产表里可能出现空描述条目，
+#: 但流程不因此中断——模型的漏列由提示词的必填约束治，兜底只保证不误伤内容完好的产出。
+AUTO_BACKFILL_REASON_MARK = "自动补登"
+
+
+def _blank_description_violations(raw_items: object) -> list[DraftViolation]:
+    """收齐 ``register`` / ``derivative`` 里 description 缺失或过短的项。
+
+    schema 只把 ``description`` 定为带空默认值的字符串：模型整项省略、写成 ``""`` 或只写一个
+    称呼都能通过 pydantic 校验，然后静默落进项目资产表，直到出图时才发现「没有外观依据」。
+    此处把「空描述」升成可报告的违约，让它走与其余内容约束同一条「隔离草稿 + 违约清单」路径。
+
+    兜底补登项（``reason`` 带 :data:`AUTO_BACKFILL_REASON_MARK`）不在判定范围内，见该常量说明。
+    """
+    if not isinstance(raw_items, list):
+        return []
+    violations: list[DraftViolation] = []
+    for index, item in enumerate(raw_items):
+        if not isinstance(item, Mapping):
+            continue
+        decision = item.get("decision")
+        if decision not in _DESCRIPTION_REQUIRED_DECISIONS:
+            continue
+        reason = item.get("reason")
+        if isinstance(reason, str) and AUTO_BACKFILL_REASON_MARK in reason:
+            continue
+        raw = item.get("description")
+        text = raw.strip() if isinstance(raw, str) else ""
+        if len(text) >= _MIN_ASSET_DESCRIPTION_CHARS:
+            continue
+        name = item.get("name")
+        shown = f"「{name}」" if isinstance(name, str) and name else f"new_assets[{index}]"
+        state = "为空" if not text else f"只有 {len(text)} 个字（「{text}」）"
+        violations.append(
+            DraftViolation(
+                f"新增资产{shown}是 {decision}，但 description {state}。register 须写 2-4 句可直接作画的"
+                "外观描述（角色：年龄体态脸型发型服饰；场景：空间陈设光线与标志物；道具：形制材质纹理），"
+                "derivative 须写相对本体的外观变化；只有 merge / skip 才留空",
+                code="blank_asset_description",
+                label=f"new_assets[{index}]",
+            )
+        )
+    return violations
+
+
 def new_asset_violations(project: Mapping[str, Any], raw_items: object) -> list[DraftViolation]:
-    """规划校验：新增资产的处理决定解析不出的项，逐条成为整集层面的违约。"""
+    """规划校验：新增资产的空描述与处理决定解析不出的项，逐条成为整集层面的违约。"""
+    violations = _blank_description_violations(raw_items)
     try:
         resolve_new_assets(project, raw_items)
     except NewAssetsError as exc:
-        return [
+        violations.extend(
             DraftViolation(
                 f"{problem.message}；请改正该项的 decision / target，或改用 register / skip",
                 code=problem.code,
                 label=f"new_assets[{problem.index}]" if problem.index >= 0 else "new_assets",
             )
             for problem in exc.problems
-        ]
-    return []
+        )
+    return violations
 
 
 def unregistered_references(

@@ -21,6 +21,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key
+from lib.script.plan_new_assets import AUTO_BACKFILL_REASON_MARK
 from lib.references.reference_catalog import build_reference_catalog
 from lib.script.reference_video.text_parser import extract_mentions, speech_speaker_references
 
@@ -75,6 +76,8 @@ def backfill_new_assets_from_units(
     场景，也避免同 unit 内 ``@[X]`` 与 ``@[X]{台词}`` 并存时判成场景。
 
     补登项不带 description / voice_style——它们只保证引用合法，资产描述仍由资产阶段或人工补。
+    空描述不会因此被判违约：补登项的 ``reason`` 带 :data:`plan_new_assets.AUTO_BACKFILL_REASON_MARK`，
+    规划校验据此豁免，兜底才不会把自己补出来的项变成无法晋升的死锁。
     名称按正文原样（只去两端空白）落库，判等键只用于去重，不当资产名写出去。
     """
     covered: set[str] = set()
@@ -110,7 +113,7 @@ def backfill_new_assets_from_units(
                 "type": "character",
                 "name": name,
                 "decision": "register",
-                "reason": "从 unit 说话人位自动补登",
+                "reason": f"从 unit 说话人位{AUTO_BACKFILL_REASON_MARK}",
                 "description": "",
                 "voice_style": "",
             }
@@ -125,7 +128,7 @@ def backfill_new_assets_from_units(
                     "type": "scene",
                     "name": name,
                     "decision": "register",
-                    "reason": "从 unit 画面位自动补登（按地名尾字判为场景）",
+                    "reason": f"从 unit 画面位{AUTO_BACKFILL_REASON_MARK}（按地名尾字判为场景）",
                     "description": "",
                 }
             )
@@ -135,7 +138,7 @@ def backfill_new_assets_from_units(
                     "type": "character",
                     "name": name,
                     "decision": "register",
-                    "reason": "从 unit 画面位自动补登（未开口，按人名判为角色）",
+                    "reason": f"从 unit 画面位{AUTO_BACKFILL_REASON_MARK}（未开口，按人名判为角色）",
                     "description": "",
                     "voice_style": "",
                 }

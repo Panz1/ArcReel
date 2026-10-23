@@ -367,7 +367,12 @@ class PlanNewAsset(BaseModel):
         description="处理决定：register 登记为新资产 / merge 归到已有资产 / derivative 登记为角色衍生 / skip 不登记"
     )
     reason: str = Field(description="一句话依据")
-    description: str = Field(default="", description="register：视觉外观描述；derivative：相对本体的外观变化；其余留空")
+    description: str = Field(
+        default="",
+        description="register / derivative 必填（留空即违约）：register 写 2-4 句可直接作画的视觉外观描述"
+        "（角色含年龄、体态、脸型、发型、服饰；场景含空间、陈设、光线与标志物；道具含形制、材质、纹理）；"
+        "derivative 写相对本体的外观变化。merge / skip 留空",
+    )
     aliases: list[str] = Field(default_factory=list, description="register：原文中的其他称呼；其余留空")
     target: str = Field(default="", description="merge：归入的同类资产名；derivative：本体角色名；其余留空")
     asset_name: str = Field(default="", description="register：登记名；derivative：衍生名；留空即取 name")

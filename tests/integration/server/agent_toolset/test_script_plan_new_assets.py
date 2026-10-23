@@ -34,6 +34,12 @@ def _new(name: str, decision: str, **fields: Any) -> dict[str, Any]:
     return {"type": "character", "name": name, "decision": decision, "reason": "原文第一次出现", **fields}
 
 
+#: register / derivative 的 description 必须够长到能直接作画（校验会拦「一个称呼」式的短描述），
+#: 夹具一律引用这两个常量，避免为了过校验而在每个用例里抄一遍外观。
+_TAO_DESC = "十岁女童，梳双丫髻，穿藕荷色短袄与月白长裤，脚踩黑布鞋，眉眼清亮"
+_HAWKER_DESC = "四十岁上下的挑担货郎，皮肤黝黑，戴草帽，穿灰蓝粗布短褂，扁担两头挂着竹筐"
+
+
 def _register_known_cast(fake_ctx: ToolHarness) -> None:
     fake_ctx.pm.project_payload["characters"]["张三"] = {
         "description": "主角，粗布短打",
@@ -86,8 +92,8 @@ async def test_narration_plan_accepts_references_to_listed_new_assets(
 
     nr_source(fake_ctx)
     new_assets = [
-        _new("小桃", "register", description="十岁女童"),
-        _new("小桃", "register", description="重复的一项"),
+        _new("小桃", "register", description=_TAO_DESC),
+        _new("小桃", "register", description="十岁女童，同样的称呼配一段不同的外观描述，用来验证同类同名只留第一项"),
     ]
     segment = nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["张三", "小桃"])
     use_text_generator(monkeypatch, nr_generator_returning([segment], new_assets=new_assets))
@@ -96,7 +102,7 @@ async def test_narration_plan_accepts_references_to_listed_new_assets(
 
     assert out.problem is None, out
     saved = json.loads(nr_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
-    assert [item["description"] for item in saved["new_assets"]] == ["十岁女童"]
+    assert [item["description"] for item in saved["new_assets"]] == [_TAO_DESC]
 
 
 async def test_narration_plan_refuses_an_unlisted_unregistered_reference(
@@ -135,7 +141,7 @@ async def test_reference_plan_accepts_a_skipped_speaker_and_new_mentions(
 ) -> None:
     rv_source(fake_ctx)
     unit = rv_unit("@[张三] 在 @[村口] 遇见 @[货郎]。\n@[路人]{借过。}")
-    new_assets = [_new("货郎", "register", description="挑担的中年人"), _new("路人", "skip")]
+    new_assets = [_new("货郎", "register", description=_HAWKER_DESC), _new("路人", "skip")]
 
     out = await run_rv_split(fake_ctx, monkeypatch, [unit], new_assets=new_assets)
 
@@ -145,20 +151,26 @@ async def test_reference_plan_accepts_a_skipped_speaker_and_new_mentions(
     assert [item["name"] for item in saved["new_assets"]] == ["货郎", "路人"]
 
 
-async def test_reference_plan_still_refuses_an_unlisted_speaker(
-    fake_ctx: ToolHarness, monkeypatch, video_request_facts
-) -> None:
+async def test_reference_plan_backfills_an_unlisted_speaker(fake_ctx: ToolHarness, monkeypatch, video_request_facts) -> None:
+    """未列进 new_assets 的说话人由兜底补登为角色，不再整批判收。
+
+    兜底的口径是「引用必须落地」，说话人位同样算引用：``@[路人]{借过。}`` 只要说得上话，
+    就该有一项 register 把它接住——判错的代价（事后在资产阶段改类型）远小于一份内容完好的
+    产出因为一个纯登记字段缺失而作废。
+    """
     rv_source(fake_ctx)
 
     out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 在 @[村口] 等人。\n@[路人]{借过。}")])
 
-    assert out.problem is not None
-    assert rv_quarantine_path(fake_ctx).exists()
+    assert out.problem is None, out
+    assert not rv_quarantine_path(fake_ctx).exists()
+    saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
+    assert "路人" in [item["name"] for item in saved["new_assets"]]
 
 
 @pytest.mark.parametrize(
     ("new_assets", "saved"),
-    [([_new("小桃", "register", description="十岁女童")], True), ([], False)],
+    [([_new("小桃", "register", description=_TAO_DESC)], True), ([], False)],
     ids=["listed", "unlisted"],
 )
 async def test_drama_plan_references_must_be_registered_or_listed(
@@ -190,10 +202,13 @@ async def test_a_quarantined_reference_plan_keeps_its_new_assets(
 ) -> None:
     rv_source(fake_ctx)
     unit = rv_unit("@[张三] 在 @[村口] 遇见 @[货郎] 和 @[王五]。")
-    new_assets = [_new("货郎", "register", description="挑担的中年人")]
+    new_assets = [_new("货郎", "register", description=_HAWKER_DESC)]
 
     out = await run_rv_split(fake_ctx, monkeypatch, [unit], new_assets=new_assets)
 
     assert out.problem is not None
     draft = json.loads(rv_quarantine_path(fake_ctx).read_text(encoding="utf-8"))
-    assert [item["name"] for item in draft["content"]["new_assets"]] == ["货郎"]
+    # 模型列的「货郎」原样保留；「王五」既未登记也没列进 new_assets，兜底补登给它补了一项
+    # （空描述，但不参与空描述校验，否则兜底会把自己补的项判成违约而卡死晋升）。
+    assert [item["name"] for item in draft["content"]["new_assets"]] == ["货郎", "王五"]
+    assert draft["content"]["new_assets"][1]["reason"].startswith("从 unit ")

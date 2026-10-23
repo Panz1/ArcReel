@@ -31,14 +31,32 @@ from lib.script.reference_video.text_parser import extract_mentions, speech_spea
 #: ``@[乡村小酒馆]`` 才是场景——单看引用位置无法区分，曾经「画面位一律按场景」的口径把不开口的
 #: 角色登记成了场景资产（还会被派去生成场景参考图）。改为按尾字判：中文地名几乎总以地形 / 建筑 /
 #: 区划字收尾，人名极少如此。
+#:
+#: 单字「子」是例外中最高频的一类：院子 / 房子 / 屋子 / 铺子 / 棚子 全以它收尾，不以它收尾的
+#: 人名（李子、孔子一类）在当代都市 / 农村题材里几乎不出现，故仍按地点处理。
 _PLACE_NAME_SUFFIXES = frozenset(
-    "馆店院村口街路巷桥屋房楼室厅场园城山河湖海林田厂校站港岛谷湾区域镇乡亭廊坝滩岭塔寺庙宫"
+    "馆店院村口街路巷桥屋房楼室厅场园城山河湖海林田厂校站港岛谷湾区域镇乡亭廊坝滩岭塔寺庙宫子"
 )
 
 
 def looks_like_place_name(name: str) -> bool:
     """兜底类型判定的地名尾字试探；判不出的一律按角色（人名）处理。"""
     return bool(name) and name.strip()[-1] in _PLACE_NAME_SUFFIXES
+
+
+#: 资产名里不该出现的语法字符：出现即说明引用本身写坏了。
+_REFERENCE_GRAMMAR_CHARS = frozenset("@[]{}")
+
+
+def is_clean_asset_name(name: str) -> bool:
+    """引用名能否当作资产名补登。
+
+    畸形引用（典型是把引用重复包一层写成 ``@[@[唐笑笑]]``）会被解析成残片 ``@[唐笑笑``，
+    它既不是「模型漏列的新资产」，也不该变成资产表里的名字——补登它等于把语法错误固化成脏数据，
+    还会让随后的 ``malformed_mention`` 报告看不出真正原因。这类名字一律跳过，交回校验报错。
+    """
+    stripped = name.strip()
+    return bool(stripped) and not (_REFERENCE_GRAMMAR_CHARS & set(stripped))
 
 
 def backfill_new_assets_from_units(
@@ -78,11 +96,11 @@ def backfill_new_assets_from_units(
             continue
         for raw in speech_speaker_references(text):
             key = asset_name_comparison_key(raw)
-            if key and key not in covered:
+            if key and key not in covered and is_clean_asset_name(raw):
                 speaker_names.setdefault(key, raw.strip())
         for raw in extract_mentions(text):
             key = asset_name_comparison_key(raw)
-            if key and key not in covered:
+            if key and key not in covered and is_clean_asset_name(raw):
                 visual_names.setdefault(key, raw.strip())
 
     backfill: list[dict[str, Any]] = []
@@ -127,4 +145,4 @@ def backfill_new_assets_from_units(
     return list(new_assets) + backfill
 
 
-__all__ = ["backfill_new_assets_from_units", "looks_like_place_name"]
+__all__ = ["backfill_new_assets_from_units", "is_clean_asset_name", "looks_like_place_name"]

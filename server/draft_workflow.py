@@ -47,7 +47,13 @@ from lib.script.draft_quarantine import (
     write_quarantine,
 )
 from lib.script.draft_violation import DraftViolation, schema_violations
-from lib.script.plan_new_assets import NEW_ASSETS_FIELD, dedupe_new_assets, planning_project, with_new_assets
+from lib.script.plan_new_assets import (
+    NEW_ASSETS_FIELD,
+    dedupe_new_assets,
+    planning_project,
+    resolve_new_assets,
+    with_new_assets,
+)
 from lib.script.reference_video.asset_backfill import backfill_new_assets_from_units
 from lib.script.script_generator import ScriptGenerator
 from lib.script.script_models import (
@@ -333,6 +339,7 @@ def _commit_reference_script_plan(
     expected_fingerprint: Any,
     basis: ArtifactBasis | None,
     before_commit: Callable[[], None] | None = None,
+    project_update: Callable[[dict[str, Any]], None] | None = None,
 ) -> None:
     if before_commit is not None:
         before_commit()
@@ -342,6 +349,7 @@ def _commit_reference_script_plan(
         content,
         expected_fingerprint=expected_fingerprint,
         basis=basis,
+        project_update=project_update,
     )
     clear_quarantine(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
 
@@ -481,6 +489,9 @@ async def _promote_reference_script_plan(
     # 产出后被其他写入方（Web 端保存、另一次拆分）改过时晋升中止、返回冲突报告让 Agent 合并，
     # 不静默覆盖对方的修改。缺少 base_fingerprint 的草稿按无基线晋升。
     expected = draft.meta.get("base_fingerprint", script_review.UNCHECKED_FINGERPRINT)
+    # 晋升即落地：正式 script_plan 里声明的本集新增资产随同一次写盘登进 project.json，与拆分
+    # 产出时的 project_update 同一语义。此前只写文件不登记，正式剧本引用的资产在项目表里不存在，
+    # 要等人工确认那一步才补——中间的资产阶段取不到条目。
     try:
         await run_sync_transaction(
             _commit_reference_script_plan,
@@ -490,6 +501,7 @@ async def _promote_reference_script_plan(
             expected,
             revalidation.basis,
             before_commit,
+            resolve_new_assets(project, revalidation.new_assets).apply_to_project,
         )
     except script_review.ScriptPlanWriteConflict as conflict:
         raise DraftWorkflowError(

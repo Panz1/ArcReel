@@ -475,6 +475,7 @@ def write_script_plan(
     clear_prompt_authoring_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
     before_lock: Callable[[], None] | None = None,
+    project_update: Callable[[dict[str, Any]], None] | None = None,
 ) -> bool:
     """Run the reference script_plan transaction in global lock order: prompt_authoring draft, then formal script_plan."""
     prompt_authoring_path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
@@ -489,6 +490,7 @@ def write_script_plan(
             expected_fingerprint=expected_fingerprint,
             clear_prompt_authoring_quarantine=clear_prompt_authoring_quarantine,
             basis=basis,
+            project_update=project_update,
         )
 
 

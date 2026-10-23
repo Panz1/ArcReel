@@ -1760,9 +1760,6 @@ async def generate_reference_script_plan(
         # 兜底：模型可能漏列候选表外的资产（新项目 asset 表为空时全部需在 new_assets 登记），
         # 从 units 正文提取未登记引用并补登为 register 项，避免 unregistered_asset 整批拒收。
         new_assets = _backfill_new_assets_from_units(new_assets, flat_units, project)
-        # 解析为本集新增资产的落地决议：commit 时经 project_update 把登记项写进 project.json
-        # （对齐 drama 模式 save_script 的 project_update 语义），使资产表与规划一起落盘、不再永不回写。
-        new_assets_resolved = resolve_new_assets(project, new_assets)
 
         violations = await asyncio.to_thread(
             collect_reference_flat_violations,
@@ -1799,6 +1796,10 @@ async def generate_reference_script_plan(
                 report + render_soft_violation_section(soft_violations, note=SOFT_VIOLATION_NOTE_QUARANTINED)
             )
 
+        # 校验已通过，new_assets 必可解析为落地决议：commit 时经 project_update 把登记项写进
+        # project.json（对齐 drama 模式 save_script 的 project_update 语义），使资产表与规划一起落盘。
+        # 放在校验之后：非法 new_assets 仍走上面「隔离草稿 + 违约报告」的路径，而非在此抛裸异常。
+        new_assets_resolved = resolve_new_assets(project, new_assets)
         raw_units = build_reference_units_from_flat(
             flat_units,
             planning,

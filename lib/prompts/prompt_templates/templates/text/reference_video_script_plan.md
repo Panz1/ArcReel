@@ -94,10 +94,10 @@ protected: false
   2. 台词下界：先估算该 unit 全部台词与画外音念完约需的秒数（口播语速约 {{ speech_rate }} {{ speech_unit }}/秒），
      取**不低于**这个秒数的档位。这是单向下界——台词永不压进念不完的短档；无台词的 unit 没有此下界。
      台词量超过最长档（{{ max_duration }} 秒）时把该 unit 拆开，不要把台词硬塞进一个 unit。
-  3. 默认偏好：{% if default_duration %}unit 默认取 {{ default_duration }} 秒{% if duration_tiers and duration_tiers.default_with_references_only %}（该默认值只落在带 `@` 引用的 unit 的档位内，另一种状态的 unit 按上面的硬约束取值）{% endif %}{% if duration_tiers and duration_tiers.default_without_references_only %}（该默认值只落在不带 `@` 引用的 unit 的档位内，另一种状态的 unit 按上面的硬约束取值）{% endif %}，叙事需要更长时可取更长档（偏好可被内容需要覆盖，硬约束不可）{% else %}按叙事需要从档位中取值，不强制默认值{% endif %}。
-  4. 打包效率（**连贯性优先**）：在 1-3 之内组织正文内容。**每个 unit 都是一次独立生成，段越多，拼接接缝越多、段内连贯性越差**——所以同一个连贯叙事段落必须打包成一个长 unit，不要切成多个短 unit。
-     目标区间：**下限 10 秒，上界取单次上限 {{ max_duration }} 秒**。同一时间、同一地点、动作连续的段落，只要合计时长落在这个区间内，就并成一个 unit，不要为了多切几个镜头而拆开；超过该上界的连续段落才拆，断点选在动作完成处 / 视线转移处 / 情绪转折处，让每一段都落回区间内。
-     没有明确叙事需要时{% if default_duration %}按上面的默认偏好取 {{ default_duration }} 秒{% else %}取 15 秒左右{% endif %}；单段越长模型漂移风险越高——用参考图锁住人物、以连续动作推进压住它，并把机位切换控制在 3-4 次以内。
+  3. 默认时长：{% if default_duration %}unit 时长**默认取 {{ default_duration }} 秒**——这是本项目的标准片段长度，不是可选的建议值。同一地点、同一段连续叙事里相邻的节拍，只要合计不超过 {{ default_duration }} 秒，**就必须合进同一个 unit**，不许拆成两个短 unit{% if duration_tiers and duration_tiers.default_with_references_only %}（该默认值只落在带 `@` 引用的 unit 的档位内，另一种状态的 unit 按上面的硬约束取值）{% endif %}{% if duration_tiers and duration_tiers.default_without_references_only %}（该默认值只落在不带 `@` 引用的 unit 的档位内，另一种状态的 unit 按上面的硬约束取值）{% endif %}。只有两种情况可以偏离：① 台词与画外音按第 2 条念完需要更长；② 本集剩余内容明显不足 {{ default_duration }} 秒{% else %}按叙事需要从档位中取值，不强制默认值{% endif %}。
+  4. 打包与内部节拍（**连贯性优先**）：在 1-3 之内组织正文内容。**每个 unit 都是一次独立生成，段越多，拼接接缝越多、段内连贯性越差**——所以同一个连贯叙事段落必须打包成一个长 unit，不要切成多个短 unit。
+     目标长度：{% if default_duration %}默认时长 {{ default_duration }} 秒{% else %}15 秒左右{% endif %}，上界是本型号单次上限 {{ max_duration }} 秒。同一时间、同一地点、动作连续的段落，**只要合计不超过单次上限就必须并成一个 unit**，不许为了多切几个镜头而拆开；只有超过单次上限的连续段落才拆，断点选在动作完成处 / 视线转移处 / 情绪转折处。
+     **一个 unit 内部可以、也应该按时间段划分内容**：正文按时间推进写出 2-4 个节拍（例如「开头 A 动作 → 中段 B 对话交锋 → 结尾 C 转折 / 反应」），节拍之间用机位切换、视线转移或动作推进衔接。**内部有多个节拍不是拆 unit 的理由**——只有合计超过单次上限才拆。单段越长模型漂移风险越高——用参考图锁住人物、以连续动作推进压住它，并把机位切换控制在 3-4 次以内。
      不要为凑满上界注水，也不要用碎段把一段连续戏切碎。{% if episode_target_duration %}本集目标时长是软约束，按下式打包——{{ partial("shared/episode_target_duration_rule") }}。{% endif %}
 
 {% if max_reference_images %}
@@ -112,7 +112,7 @@ protected: false
 - **推断词清零**：不写「若有所思」「似乎」「仿佛」「不禁」「心里明白」「眼底藏着」——这些没有可拍载体，写进正文只会让画面空转。
 - **台词不加快（输出前逐条自检）**：把每个 unit 的台词与画外音合计{{ speech_unit }}数 ÷ {{ speech_rate }}（{{ speech_unit }}/秒）与该 unit 的 `duration_seconds` 逐条比对，
   超出就把靠后的台词挪到相邻 unit，或把这个 unit 按对话轮次拆开；**不许靠念快塞进短 unit**，也不许把多轮对话压进一个装不下的 unit。
-- **一个 unit 一个场景**：unit 内不换地点；地点变化必须开新 unit。
+- **一个 unit 一个地点**：unit 内不换地点；地点变化必须开新 unit。地点不变时，unit 内部可以包含多个时间段与多个机位——这是正常写法，不要据此拆 unit。
 
 # 正文书写语法
 

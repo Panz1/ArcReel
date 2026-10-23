@@ -122,39 +122,6 @@ pnpm e2e:remote   # 终端二：构建前端，连接容器里的浏览器运行
 
 上站页面与 README 的写作规范见 [`docs/standards/docs.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/docs.md)；功能变更需要同步哪些文档见 [`docs/standards/general.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/general.md)「功能变更与对应文档在同一个 PR 里」。上站页面的每个标题写成 `## 标题 {#english-id}`，中英两个 locale 共用同一锚点。
 
-## 工作流程
-
-### 分支策略（trunk-based）
-
-- 只有 `main` 是长期分支。所有工作从最新 `main` 切短分支完成，PR 合回 `main`
-- 禁止直接 push 到 `main`。个人分支同样经 PR 流程合并，提交前自行检查 diff 与验收清单
-
-### 分支命名约定
-
-`<type>/<slug>`，`type` 取 conventional commit 类型之一：
-
-AFK 团队流程的短期运行分支例外使用 `afk/<batch-id>/stage-<K>` 与 `issue/<N>`。
-
-- `feat/` — 新功能（如 `feat/reference-video-backend`）
-- `fix/` — Bug 修复（如 `fix/queue-lease-timeout`）
-- `refactor/` — 重构（如 `refactor/session-actor`）
-- `docs/` — 纯文档（如 `docs/contribution-infra`）
-- `chore/` — 构建/工具 / 版本号 / 清理（如 `chore/freeze-versions`）
-- `ci/` — CI 配置（如 `ci/testing-discipline`）
-- `test/` — 仅测试
-
-`slug` 用小写 + 短横线，简短描述该分支的主题。
-
-### 短分支寿命
-
-从创建到合并 ≤ 3 天。超期应拆分或先 rebase 主线同步，避免将长期分支直接提交 review。
-
-### Squash merge
-
-每个 PR 压缩为 1 个 commit 合并回 `main`，commit message 遵循 conventional commits 规范（见下节）。GitHub 上选择 "Squash and merge"。
-
-`afk-team-workflow` 生成的 stage PR 是例外：它用 "Rebase and merge" 保留每个 issue 的 conventional commit；清尾与 review loop 产生的非 issue commits 在合并前压成一个 conventional integration-fix commit。
-
 ## 提交规范
 
 Commit message 采用 [Conventional Commits](https://www.conventionalcommits.org/) 格式：
@@ -167,33 +134,9 @@ docs: 文档变更
 chore: 构建/工具变更
 ```
 
-标题格式为 `type(scope): 摘要`，scope 可省略。squash 合并下 PR 标题即 changelog 条目：描述用户可感知的收益，范围词使用产品术语而非实现术语（status_code、内部类名等），并如实限定范围。type 取值与 changelog 分类见下文「发版流程」与 `.release-please-config.json`。
+标题格式为 `type(scope): 摘要`，scope 可省略。摘要描述用户可感知的收益，范围词使用产品术语而非实现术语（status_code、内部类名等），并如实限定范围。
 
-## 发版流程
-
-版本号与 changelog 由 [release-please](https://github.com/googleapis/release-please) 自动维护（配置见 `.release-please-config.json`，workflow 见 `.github/workflows/release-please.yml`）。**开发者无需手动 bump 版本号**——只需写合规的 conventional commits。
-
-### 工作流程
-
-1. 普通 PR 按 conventional commits 规范 squash merge 到 `main`；`afk-team-workflow` stage PR 按上述例外 rebase merge
-2. release-please 扫描自上次 release 以来的 commit，自动创建或更新标题形如 `chore(main): release X.Y.Z` 的 Release PR，包含下一版本号与更新后的 `CHANGELOG.md`
-3. 合并该 Release PR 即自动创建 `vX.Y.Z` tag 并发布 GitHub Release
-
-### commit type → 版本步进
-
-| commit type | 版本步进 | changelog |
-|-------------|---------|-----------|
-| `feat`      | minor   | ✨ 新功能 |
-| `fix`       | patch   | 🐛 Bug 修复 |
-| `feat!` / 任意 type + `!` / footer 含 `BREAKING CHANGE:` | **major**（版本 <1.0.0 时为 minor） | ⚠️ BREAKING CHANGES（changelog 置顶） |
-| `perf` / `refactor` / `docs` / `revert` | 不步进 | 显示（⚡ / ♻️ / 📚 / ↩️） |
-| `chore` / `ci` / `build` / `test` / `style` | 不步进 | 隐藏 |
-
-> release-please 默认只有 `feat` 和 `fix`（以及破坏性变更）触发版本 bump。将 `perf`/`refactor`/`docs`/`revert` 配置为 `hidden: false` 仅影响 changelog 呈现，不会使它们触发 patch bump。如果一轮迭代只有这几类 commit，不会产出 Release PR，直到下一个 `fix`/`feat` commit 到来。
-
-`pyproject.toml` 和 `frontend/package.json` 的 `version` 字段由 release-please 自动维护（见 `pyproject.toml` 的 `# managed by release-please` 注释），**开发者视为只读**。`uv.lock` 同样由 release-please workflow 在 Release PR 分支上自动 `uv lock` 同步。实际版本状态以 git tag + `.release-please-manifest.json` 为准。
-
-### commit 示例
+## 提交示例
 
 ```
 # 新功能（minor bump）
@@ -208,22 +151,5 @@ feat(grid): 支持 grid_12 布局
 将多宫格分镜系统扩展到 12 宫格，适用于长篇剧集的批量预览。
 ```
 
-**本仓库不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 不做版本化对外承诺——自带前端随版本同步演进，外部集成通过 `/agent-installation-guide.md` 获取当前安装入口、不依赖版本号。接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。误标合并后的纠正按 merge 方式处理：普通 squash PR 编辑正文追加 `BEGIN_COMMIT_OVERRIDE`/`END_COMMIT_OVERRIDE` 块，等待下一次 main push 或手动重跑 workflow；AFK rebase stage 则在最后一次 main push 更新 Release PR 后，直接校正其版本与 changelog 产物并通过完整性校验，再合并 Release PR。0.x 阶段的 `bump-minor-pre-major` 仅把误标的版本跃迁限制为 minor，不修正 changelog。
+**本仓库不使用破坏性变更标记。** 前后端同仓一体发布，后端 API 不做版本化对外承诺——自带前端随版本同步演进，外部集成通过 `/agent-installation-guide.md` 获取当前安装入口、不依赖版本号。接口删改按 `fix`/`refactor` 正常分类，不加 `!` 后缀、不写 `BREAKING CHANGE:` footer。
 
-以下语法说明仅用于识别误标。**破坏性变更**有两种等价写法：
-
-```
-# 写法 1：type 后加 !
-feat(api)!: 移除 /api/v1/legacy 端点
-
-# 写法 2：footer 含 BREAKING CHANGE（更常用，可以写多行说明）
-feat(auth): 统一 API Key 验证逻辑
-
-BREAKING CHANGE: /api/v1/api-keys 的返回结构改为 { items: [...] }，
-旧客户端需要适配。
-```
-
-两种写法 release-please 都会：
-- 将版本号 bump 为 major；当前版本 <1.0.0 时受 `bump-minor-pre-major` 配置约束，只 bump minor
-- 在 changelog 顶部插入独立的 **⚠️ BREAKING CHANGES** 区块，汇总展示每条破坏性变更的描述
-- 在对应 type section（如 `✨ 新功能`）下保留该 commit 的常规条目

@@ -26,16 +26,8 @@ const ANCHORS = new Map([
   ["## 文档维护", "docs-maintenance"],
   ["### 各页职责", "page-responsibilities"],
   ["### 写作约定", "writing-conventions"],
-  ["## 工作流程", "workflow"],
-  ["### 分支策略（trunk-based）", "branching-strategy"],
-  ["### 分支命名约定", "branch-naming"],
-  ["### 短分支寿命", "short-lived-branches"],
-  ["### Squash merge", "squash-merge"],
   ["## 提交规范", "commit-convention"],
-  ["## 发版流程", "release-process"],
-  ["### 工作流程", "release-workflow"],
-  ["### commit type → 版本步进", "commit-type-version-bump"],
-  ["### commit 示例", "commit-examples"],
+  ["## 提交示例", "commit-examples"],
 ]);
 
 function injectAnchors(markdown) {

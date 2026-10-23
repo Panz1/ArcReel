@@ -4,14 +4,14 @@ AI 视频创作平台，将小说、剧本或创作构想转化为短视频。�
 
 ## 工具链与校验
 
-后端使用 `uv`，前端与文档站使用 `pnpm`。修改代码或测试时，先按 `docs/agents/testing.md` 选择并运行相关测试；push 前跑完整闸门，团队流程里由负责 push 的角色跑：
+后端使用 `uv`，前端与文档站使用 `pnpm`。修改代码或测试时，先按 `docs/agents/testing.md` 选择并运行相关测试；推送前可运行本地闸门自检：
 
 ```bash
 uv run python scripts/gate.py --changed            # 按相对 origin/main 的改动选域，一次跑完
 uv run python scripts/gate.py backend frontend     # 或直接点名域；各域的触发路径与步骤见 --list
 ```
 
-另一份闸门正在跑时它会排队，等待是正常现象。相关测试必须实际运行且通过。新增或升级依赖：`docs/agents/dependencies.md`。启动开发服务器、数据库迁移、分支与提交规范：`CONTRIBUTING.md`。
+相关测试必须实际运行且通过。新增或升级依赖：`docs/agents/dependencies.md`。启动开发服务器、数据库迁移与提交规范：`CONTRIBUTING.md`。
 
 ## Code Review Rules
 
@@ -23,7 +23,5 @@ uv run python scripts/gate.py backend frontend     # 或直接点名域；各域
 
 ## Agent skills
 
-- 议题追踪：GitHub Issues，用 `gh` CLI 操作；Spec 与 ticket 的约定见 `docs/agents/issue-tracker.md`。
-- Triage 标签状态机：`docs/agents/triage-labels.md`。
 - 领域文档（`GLOSSARY.md` + `docs/adr/`）的使用方式：`docs/agents/domain.md`。
 - 项目 schema 迁移：新增或修改 `lib/project/project_migrations/` 的迁移步、改动产物补录规划器时读 `docs/agents/project-migrations.md`。

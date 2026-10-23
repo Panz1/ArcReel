@@ -3,8 +3,6 @@
 
 - STANDARDS-*：`docs/standards/*.md` 的 frontmatter `paths` 是规范适用路径的唯一真相源；
   `CODING_STANDARDS.md` 的索引表与 `.coderabbit.yaml` 的 `filePatterns` 都由它生成。
-- DEPENDABOT-GROUP：每个直接依赖都要落进 `.github/dependabot.yml` 中一个具名分组，
-  只命中兜底分组（`patterns: ["*"]`）说明新增依赖时漏了归组。
 - TOOL-VERSION：actionlint / zizmor 在 pre-commit 与 CI workflow 中的版本一致。
 - SUPPRESSION-REASON：行内豁免注释（`noqa`、`pyright: ignore`、`type: ignore`、`deptry: ignore`、
   `zizmor: ignore`、`eslint-disable`、knip 的 `@public`）在同一行写明理由。
@@ -17,15 +15,12 @@ from __future__ import annotations
 
 import argparse
 import io
-import json
 import os
 import re
 import sys
 import tokenize
-import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass
-from fnmatch import fnmatchcase
 from pathlib import Path
 
 import yaml
@@ -34,7 +29,6 @@ ROOT = Path(__file__).resolve().parent.parent
 STANDARDS_DIR = Path("docs/standards")
 STANDARDS_INDEX = Path("CODING_STANDARDS.md")
 CODERABBIT_CONFIG = Path(".coderabbit.yaml")
-DEPENDABOT_CONFIG = Path(".github/dependabot.yml")
 PRE_COMMIT_CONFIG = Path(".pre-commit-config.yaml")
 CI_WORKFLOW = Path(".github/workflows/test.yml")
 
@@ -160,96 +154,11 @@ def check_generated_blocks(root: Path, standards: list[Standard], fix: bool, out
                 )
 
 
-# ---------------------------------------------------------------- Dependabot 分组
-
-
 def _line_of(root: Path, path: Path, needle: str) -> int:
     for n, line in enumerate((root / path).read_text(encoding="utf-8").split("\n"), 1):
         if needle in line:
             return n
     return 1
-
-
-def _requirement_name(spec: str) -> str:
-    return re.split(r"[\s<>=!~;\[@]", spec, maxsplit=1)[0]
-
-
-def _is_catch_all(group: dict[str, object]) -> bool:
-    return group.get("patterns") == ["*"] and "dependency-type" not in group
-
-
-def _matches(name: str, patterns: object) -> bool:
-    return isinstance(patterns, list) and any(fnmatchcase(name.lower(), str(p).lower()) for p in patterns)
-
-
-def _named_group_for(name: str, development: bool, groups: dict[str, dict[str, object]]) -> str | None:
-    for group_name, group in groups.items():
-        if _is_catch_all(group):
-            continue
-        dep_type = group.get("dependency-type")
-        if dep_type == "development" and not development:
-            continue
-        if dep_type == "production" and development:
-            continue
-        if _matches(name, group.get("exclude-patterns")):
-            continue
-        if _matches(name, group.get("patterns")):
-            return group_name
-    return None
-
-
-def _ecosystem_groups(config: dict[str, object], ecosystem: str, directory: str) -> dict[str, dict[str, object]]:
-    updates = config.get("updates")
-    assert isinstance(updates, list)
-    for update in updates:
-        if update.get("package-ecosystem") == ecosystem and update.get("directory") == directory:
-            groups = update.get("groups") or {}
-            assert isinstance(groups, dict)
-            return groups
-    return {}
-
-
-def check_dependabot_groups(root: Path, out: list[Violation]) -> None:
-    config = yaml.safe_load((root / DEPENDABOT_CONFIG).read_text(encoding="utf-8"))
-    guidance = "只落进 `.github/dependabot.yml` 的兜底分组，把它加进语义对应的具名分组"
-
-    pyproject_path = Path("pyproject.toml")
-    pyproject = tomllib.loads((root / pyproject_path).read_text(encoding="utf-8"))
-    workspace_members = {
-        name
-        for name, source in pyproject.get("tool", {}).get("uv", {}).get("sources", {}).items()
-        if source.get("workspace")
-    }
-    python_deps = [(_requirement_name(s), False) for s in pyproject["project"].get("dependencies", [])]
-    for specs in pyproject.get("dependency-groups", {}).values():
-        python_deps += [(_requirement_name(s), True) for s in specs if isinstance(s, str)]
-    groups = _ecosystem_groups(config, "uv", "/")
-    for name, development in python_deps:
-        if name in workspace_members or _named_group_for(name, development, groups):
-            continue
-        out.append(
-            Violation(
-                "DEPENDABOT-GROUP", pyproject_path, _line_of(root, pyproject_path, f'"{name}'), f"`{name}` {guidance}"
-            )
-        )
-
-    for package_dir in ("frontend", "website"):
-        manifest_path = Path(package_dir) / "package.json"
-        manifest = json.loads((root / manifest_path).read_text(encoding="utf-8"))
-        groups = _ecosystem_groups(config, "npm", f"/{package_dir}")
-        deps = [(n, False) for n in manifest.get("dependencies", {})]
-        deps += [(n, True) for n in manifest.get("devDependencies", {})]
-        for name, development in deps:
-            if _named_group_for(name, development, groups):
-                continue
-            out.append(
-                Violation(
-                    "DEPENDABOT-GROUP",
-                    manifest_path,
-                    _line_of(root, manifest_path, f'"{name}"'),
-                    f"`{name}` {guidance}",
-                )
-            )
 
 
 # ---------------------------------------------------------------- 工具版本
@@ -430,7 +339,6 @@ def audit(root: Path = ROOT, *, fix: bool = False) -> list[Violation]:
     out: list[Violation] = []
     standards = load_standards(root, out)
     check_generated_blocks(root, standards, fix, out)
-    check_dependabot_groups(root, out)
     check_tool_versions(root, out)
     check_suppression_reasons(root, out)
     return out

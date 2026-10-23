@@ -29,7 +29,7 @@ lint、类型检查、依赖检查报错时修改代码，不加 baseline、计�
 - deptry 的 `DEP002` / `DEP004`：写在 `[tool.deptry.per_rule_ignores]`，按包名逐项列出。
 - ESLint 的文件级关闭：经 `eslint.config.js` 的 `files` override。
 
-策略阈值类的发现（如 Dependabot 冷却期天数）按工具要求调整配置，同样不走豁免。
+策略阈值类的发现（如依赖升级机器人的冷却期天数）按工具要求调整配置，同样不走豁免。
 
 理由要说明「为什么这里工具判错了」或「为什么这里只能这样写」。「太麻烦」「暂时这样」「later fix」不成立；「React setter 引用稳定」「mount-only 初始化」「第三方库未提供类型」成立。
 

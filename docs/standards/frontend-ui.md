@@ -71,7 +71,7 @@ shadcn 文档与社区示例多数基于 Radix，Base UI 版本有几处差异�
 
 ### 原语出现缺陷或 major 升级时，用 `add --diff` 对照上游后手动合并
 
-Dependabot 只升级 npm 包，不会重新生成 `components/ui/*.tsx`。`@base-ui/react` 与 `shadcn` 的 minor、patch 升级归入 `shadcn-stack` 分组；major 升级单独开 PR，在同一个 PR 中对已安装组件逐个运行 `pnpm exec shadcn add <组件> --diff`，手动合并上游改动并保留本地注释说明的改动。遇到原语缺陷时，先用 `add --diff` 确认上游是否已经修复。不定期全量跟进。
+依赖升级不会重新生成 `components/ui/*.tsx`。`@base-ui/react` 与 `shadcn` 的 minor、patch 升级在升级后确认组件仍可用；major 升级单独处理，在同一个改动里对已安装组件逐个运行 `pnpm exec shadcn add <组件> --diff`，手动合并上游改动并保留本地注释说明的改动。遇到原语缺陷时，先用 `add --diff` 确认上游是否已经修复。不定期全量跟进。
 
 ### 多行输入框使用 `components/ui/textarea` 的 `Textarea`，不手写测高
 

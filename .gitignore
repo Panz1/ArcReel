@@ -59,10 +59,16 @@ frontend/playwright-report/
 .worktrees/
 .claude/worktrees/
 
+# ArcReel 本地运行配置（含 API key，勿入库）
+.arcreel/
+
+# WorkBuddy 代理记忆（本地知识，勿入库）
+.workbuddy/
+
 # Claude Code 本地配置（.worktreeinclude 据此复制到新 worktree）
 .claude/settings.local.json
 
-# AFK 团队执行的批次账本（afk-team-workflow，本地运维状态，不提交）
+# 本地批次账本（本地运维状态，不提交）
 .afk/
 
 # Superpowers (Claude Code plugin cache)

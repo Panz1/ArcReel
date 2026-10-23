@@ -72,7 +72,7 @@ dev = [
     "blockbuster>=1.5.29",
 ]
 # 变异测试工具，不进 dev：只在按批次跑 mutmut 时 `uv sync --group mutation` 装入。
-# 独立成组是为了让版本 pin 进 uv.lock、被 dependabot 看到；流程见 docs/testing/mutmut-runbook.md。
+# 独立成组是为了让版本 pin 进 uv.lock；流程见 docs/testing/mutmut-runbook.md。
 mutation = [
     "mutmut==3.7.0",
 ]

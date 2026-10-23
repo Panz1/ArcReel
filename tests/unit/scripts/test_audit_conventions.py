@@ -29,41 +29,6 @@ _CODERABBIT = """knowledge_base:
       # standards:end
 """
 
-_DEPENDABOT = """version: 2
-updates:
-  - package-ecosystem: "uv"
-    directory: "/"
-    groups:
-      web:
-        patterns:
-          - "fastapi"
-      dev-dependencies:
-        patterns:
-          - "pytest*"
-      all-other:
-        patterns:
-          - "*"
-  - package-ecosystem: "npm"
-    directory: "/frontend"
-    groups:
-      react:
-        patterns:
-          - "react"
-      dev-dependencies:
-        dependency-type: "development"
-        patterns:
-          - "*"
-      all-other:
-        patterns:
-          - "*"
-  - package-ecosystem: "npm"
-    directory: "/website"
-    groups:
-      all-other:
-        patterns:
-          - "*"
-"""
-
 _PYPROJECT = """[project]
 name = "demo"
 dependencies = [
@@ -111,7 +76,6 @@ def repo(tmp_path: Path) -> Path:
     _write(tmp_path, "docs/standards/backend.md", _STANDARD)
     _write(tmp_path, "CODING_STANDARDS.md", _INDEX)
     _write(tmp_path, ".coderabbit.yaml", _CODERABBIT)
-    _write(tmp_path, ".github/dependabot.yml", _DEPENDABOT)
     _write(tmp_path, "pyproject.toml", _PYPROJECT)
     _write(tmp_path, ".pre-commit-config.yaml", _PRE_COMMIT)
     _write(tmp_path, ".github/workflows/test.yml", _WORKFLOW)
@@ -156,41 +120,6 @@ def test_missing_generation_markers_are_reported(repo: Path) -> None:
     _write(repo, ".coderabbit.yaml", "knowledge_base: {}\n")
 
     assert _rules(repo) == [("STANDARDS-CODERABBIT", ".coderabbit.yaml")]
-
-
-def test_dependency_matching_only_the_catch_all_group_is_reported_at_its_declaration(repo: Path) -> None:
-    _write(repo, "pyproject.toml", _PYPROJECT.replace('    "demo-core",\n', '    "demo-core",\n    "httpx>=0.27",\n'))
-    _write(repo, "frontend/package.json", json.dumps({"dependencies": {"react": "^19", "zustand": "^5"}}, indent=2))
-
-    violations = audit(repo)
-
-    assert [(v.rule, v.path.as_posix(), v.line) for v in violations] == [
-        ("DEPENDABOT-GROUP", "pyproject.toml", 6),
-        ("DEPENDABOT-GROUP", "frontend/package.json", 4),
-    ]
-    assert "`httpx`" in violations[0].guidance
-    assert "`zustand`" in violations[1].guidance
-
-
-def test_dependency_excluded_from_its_named_group_is_reported(repo: Path) -> None:
-    _write(
-        repo,
-        ".github/dependabot.yml",
-        _DEPENDABOT.replace(
-            '          - "pytest*"\n', '          - "pytest*"\n        exclude-patterns:\n          - "pytest-xdist"\n'
-        ),
-    )
-    _write(
-        repo, "pyproject.toml", _PYPROJECT.replace('    "demo-core",\n', '    "demo-core",\n    "pytest-xdist>=3",\n')
-    )
-
-    assert _rules(repo) == [("DEPENDABOT-GROUP", "pyproject.toml")]
-
-
-def test_development_group_does_not_cover_production_dependencies(repo: Path) -> None:
-    _write(repo, "frontend/package.json", json.dumps({"dependencies": {"vitest": "^3"}}))
-
-    assert _rules(repo) == [("DEPENDABOT-GROUP", "frontend/package.json")]
 
 
 def test_tool_version_drift_between_pre_commit_and_workflow_is_reported(repo: Path) -> None:

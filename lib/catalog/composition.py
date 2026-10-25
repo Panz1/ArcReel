@@ -1,7 +1,8 @@
 """目录合成：官方数据与用户修改合成运行时读到的模型目录（docs/adr/0099、0103）。
 
 - 官方数据：出厂快照与官方同步中，数据集版本较新的一份（:func:`newest_official`）；另一份里有、它没有的条目
-  保留下来（:func:`merge_official`），同步不删除模型条目（docs/adr/0103）。
+  与内置供应商保留下来（:func:`retain_entries`），同步不删除模型条目，也不删除本地独有的内置供应商
+  （如 fork 本地添加、官方目录仓库里没有的供应商，docs/adr/0103）。
 - 用户修改：整个条目的副本。有副本的条目停止跟随官方，只用副本；丢弃副本即恢复跟随官方。用户新建的条目（官方
   数据里没有它时手动填写的）从一开始就不跟随官方；日后官方数据收录了同一身份的条目，它仍是用户新建的，同时能看到
   官方的值，用户可以改用官方数据。
@@ -31,10 +32,24 @@ def newest_official(candidates: Sequence[CatalogData]) -> CatalogData:
 
 
 def retain_entries(newest: CatalogData, older: CatalogData) -> CatalogData:
-    """``older`` 里有、``newest`` 里没有的条目接在 ``newest`` 的条目之后；供应商清单与数据集版本仍取 ``newest``。"""
-    keys = {entry.key for entry in newest.entries}
-    retained = tuple(entry for entry in older.entries if entry.key not in keys)
-    return replace(newest, entries=newest.entries + retained) if retained else newest
+    """``older`` 里有、``newest`` 里没有的条目与内置供应商接在 ``newest`` 之后/之上；数据集版本仍取 ``newest``。
+
+    条目与内置供应商都按身份/键取并集：官方同步只会覆盖双方都有的部分，不会删除本地独有的模型条目或
+    内置供应商（如 fork 本地添加、官方目录仓库里没有的供应商）。数据集版本取较新的一份。
+    """
+    entry_keys = {entry.key for entry in newest.entries}
+    retained_entries = tuple(entry for entry in older.entries if entry.key not in entry_keys)
+    provider_keys = set(newest.builtin_providers)
+    retained_providers = {
+        pid: listing for pid, listing in older.builtin_providers.items() if pid not in provider_keys
+    }
+    if not retained_entries and not retained_providers:
+        return newest
+    return replace(
+        newest,
+        entries=(*newest.entries, *retained_entries),
+        builtin_providers={**newest.builtin_providers, **retained_providers},
+    )
 
 
 def merge_official(snapshot: CatalogData, synced: CatalogData) -> CatalogData:

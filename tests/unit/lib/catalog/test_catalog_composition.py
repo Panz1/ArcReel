@@ -2,7 +2,7 @@
 
 from dataclasses import replace
 
-from arcreel_catalog_core import CatalogData, CatalogEntry, TextFacts
+from arcreel_catalog_core import BuiltinProviderListing, BuiltinProviderModel, CatalogData, CatalogEntry, TextFacts
 from lib.catalog.composition import compose_catalog, merge_official, newest_official
 from tests.catalog_support import catalog_of
 
@@ -55,6 +55,28 @@ class TestMergeOfficial:
         assert merged.dataset_version == synced.dataset_version
         assert [e.display_name for e in merged.entries] == ["Chat v2", "Legacy"]
         assert merged.builtin_providers == synced.builtin_providers
+
+    def test_newer_sync_keeps_a_local_only_builtin_provider(self):
+        # fork 本地添加、官方目录仓库里没有的内置供应商（如 coolhs）不应被官方同步整块覆盖
+        factory = _official("2026-10-01T00:00:00Z", _text("chat", "Chat v1"), _text("local"))
+        local_provider = replace(
+            factory,
+            builtin_providers={
+                **factory.builtin_providers,
+                "coolhs": BuiltinProviderListing(
+                    models=(BuiltinProviderModel(api_model_name="coolhs-wan3", entry="acme/local"),),
+                ),
+            },
+        )
+        synced = _official("2026-10-20T00:00:00Z", _text("chat", "Chat v2"))
+
+        merged = merge_official(local_provider, synced)
+
+        # 本地独有供应商被保留
+        assert "coolhs" in merged.builtin_providers
+        assert merged.builtin_providers["coolhs"].models[0].api_model_name == "coolhs-wan3"
+        # 官方有的供应商仍来自较新的 synced（共有部分不被本地覆盖）
+        assert merged.builtin_providers["acme"] is synced.builtin_providers["acme"]
 
     def test_newer_snapshot_wins_and_keeps_entries_only_the_sync_has(self):
         factory = _official("2026-11-01T00:00:00Z", _text("chat", "Chat v3"))

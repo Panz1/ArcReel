@@ -24,6 +24,7 @@ from lib.script.reference_video.script_preview import (
     WARN_UNREGISTERED_SPEAKER,
     build_script_preview,
 )
+from lib.script.reference_video.prompt_dialect import SEEDANCE, WAN30
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_models import ReferenceResource
 
@@ -730,3 +731,162 @@ def test_unregistered_speaker_derivative_falls_back_to_the_ontology_mark():
     )
 
     assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt
+
+
+def test_timecode_normalization_for_wan_adds_segment_prefix_and_brackets():
+    """万相 3.0 要「序号 + 起止秒」；正文里的 （0—4秒） 只有时间、无序号、还是长破折号，
+    必须归一成 分段N[起-止秒]，否则模型只把 duration 当容器、自行填补节奏，时间段对不上。"""
+    text = "画面内容：（0—4秒）：@[张三] 弯腰捡起树枝。（4—9秒）：他直起身。"
+    rendered = render_unit_prompt(text, _project(), _refs(("character", "张三")), _SOFT, dialect=WAN30)
+
+    assert "分段1[0-4秒]：" in rendered.prompt
+    assert "分段2[4-9秒]：" in rendered.prompt
+    # 长破折号与全角括号被归一，原记号不残留
+    assert "（0—4秒）" not in rendered.prompt
+    assert "—" not in rendered.prompt
+
+
+def test_timecode_normalization_for_seedance_drops_seconds():
+    """Seedance 对秒级硬卡支持不稳，官方建议用镜头序号；故归一后只剩 镜头N：，不写秒数。"""
+    text = "画面内容：（0—4秒）：@[张三] 弯腰。（4—9秒）：他直起身。"
+    rendered = render_unit_prompt(text, _project(), _refs(("character", "张三")), _SOFT, dialect=SEEDANCE)
+
+    assert "镜头1：" in rendered.prompt
+    assert "镜头2：" in rendered.prompt
+    assert "[0-4秒]" not in rendered.prompt
+    assert "（0—4秒）" not in rendered.prompt
+
+
+def test_timecode_clock_format_converted_to_seconds_for_wan():
+    """官方另一种写法 （00:00-00:03） 也认，并折算成秒数写进 分段N[起-止秒]。"""
+    text = "（00:00-00:03）：@[张三] 站立。（00:03-00:06）：他转身。"
+    rendered = render_unit_prompt(text, _project(), _refs(("character", "张三")), _SOFT, dialect=WAN30)
+
+    assert "分段1[0-3秒]：" in rendered.prompt
+    assert "分段2[3-6秒]：" in rendered.prompt
+    assert "00:00" not in rendered.prompt
+
+
+def test_spatial_relations_declared_only_for_two_or_more_characters():
+    """固定空间关系只在多人同框时锚定站位；单人不出，避免无谓约束挤占配额。
+
+    声明而非禁止：正文写明的位移动作不被一刀切，只约束「无逻辑乱跑 / 瞬移 / 轴线错乱」。
+    """
+    single = render_unit_prompt(
+        "镜头1：@[张三] 独行。",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+    assert "固定空间关系" not in single.prompt
+
+    multi = render_unit_prompt(
+        "@[张三] 与 @[李四] 在院中对话。",
+        _project(),
+        _refs(("character", "张三"), ("character", "李四")),
+        _SOFT,
+    )
+    assert "固定空间关系" in multi.prompt
+    assert "<张三>" in multi.prompt and "<李四>" in multi.prompt
+    assert "仅在正文明确写明的位移动作中移动" in multi.prompt
+
+
+def test_spatial_relations_uses_ontology_name_for_derivatives():
+    """衍生与本体同框时，固定空间关系用合并后的本体名，与形态声明口径一致。"""
+    rendered = render_unit_prompt(
+        "@[张三/劲装] 与 @[李四] 对峙。",
+        _project_with_derivatives(),
+        _refs(("character", "张三/劲装"), ("character", "李四")),
+        _SOFT,
+    )
+    assert "固定空间关系：<张三>、<李四>" in rendered.prompt
+
+
+def test_subject_lock_recalls_bound_characters_with_image_numbers():
+    """两个及以上角色参考图同现时，用「主体锁定：」回述每个角色及其图号，强化身份一致。"""
+    rendered = render_unit_prompt(
+        "@[张三] 与 @[李四] 在院中对话。",
+        _project(),
+        _refs(("character", "张三"), ("character", "李四")),
+        _SOFT,
+        dialect=WAN30,
+    )
+    assert "主体锁定：<张三>图1、<李四>图2。" in rendered.prompt
+
+
+def test_subject_lock_only_when_two_or_more_character_images():
+    """单人 / 只有一个角色参考图时不产出主体锁定，避免无谓约束挤占配额。"""
+    single = render_unit_prompt(
+        "@[张三] 独行。",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+    assert "主体锁定" not in single.prompt
+
+    # 纯场景 / 道具、无角色参考图也不产出
+    no_character = render_unit_prompt(
+        "@[酒馆] 空镜。",
+        _project(),
+        _refs(("scene", "酒馆")),
+        _SOFT,
+    )
+    assert "主体锁定" not in no_character.prompt
+
+
+def test_subject_lock_lists_each_referenced_character_form():
+    """本体与衍生各自有参考图时，主体锁定把两张图都列出来（与第一段绑定行同口径）。"""
+    rendered = render_unit_prompt(
+        "@[张三] 与 @[张三/劲装] 同框。",
+        _project_with_derivatives(),
+        _refs(("character", "张三"), ("character", "张三/劲装")),
+        _SOFT,
+        dialect=WAN30,
+    )
+    assert "主体锁定：<张三>图1、<张三/劲装>图2。" in rendered.prompt
+
+
+def test_transition_injected_between_wan_segments():
+    """万相多镜头：段末补硬切转场，挂在上一镜头的末句、不在最后一个镜头后。"""
+    text = "画面内容：（0—4秒）：@[张三] 弯腰捡起树枝。（4—9秒）：他直起身。"
+    rendered = render_unit_prompt(text, _project(), _refs(("character", "张三")), _SOFT, dialect=WAN30)
+
+    assert "硬切转场" in rendered.prompt
+    # 段末转场接在上一镜头内容末句
+    assert "分段1[0-4秒]：<张三> 弯腰捡起树枝，硬切转场。" in rendered.prompt
+    # 最后一个镜头后面不再补转场
+    assert "分段2[4-9秒]：他直起身，硬切转场。" not in rendered.prompt
+    assert "分段2[4-9秒]：他直起身。" in rendered.prompt
+
+
+def test_transition_not_injected_for_non_wan_dialects():
+    """Seedance / MiniMax / 通用无官方转场 token，回落空串，prompt 里不出现硬切转场。"""
+    text = "画面内容：（0—4秒）：@[张三] 弯腰。（4—9秒）：他直起身。"
+    seedance = render_unit_prompt(text, _project(), _refs(("character", "张三")), _SOFT, dialect=SEEDANCE)
+    generic = render_unit_prompt(text, _project(), _refs(("character", "张三")), _SOFT)
+
+    assert "硬切转场" not in seedance.prompt
+    assert "硬切转场" not in generic.prompt
+
+
+def test_no_transition_without_timecodes():
+    """无分镜时间码的正文不是多镜头结构，不补转场（作者随手写的 镜头N： 也不会被误判）。"""
+    rendered = render_unit_prompt(
+        "镜头1：@[张三] 推门。\n镜头2：他坐下。",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+    assert "硬切转场" not in rendered.prompt
+
+
+def test_transition_placed_at_end_of_previous_line_when_timecodes_split_across_lines():
+    """分镜时间码分两行写时，段末转场落到上一行末（保留换行），而非堆到下一行开头。"""
+    text = "画面内容：（0—4秒）：@[张三] 弯腰。\n（4—9秒）：他直起身。"
+    rendered = render_unit_prompt(text, _project(), _refs(("character", "张三")), _SOFT, dialect=WAN30)
+
+    assert "硬切转场" in rendered.prompt
+    # 转场在上一行末
+    assert "分段1[0-4秒]：<张三> 弯腰，硬切转场。" in rendered.prompt
+    # 下一个时间码另起一行，且其后不再补转场
+    assert "分段2[4-9秒]：他直起身。" in rendered.prompt

@@ -20,6 +20,9 @@ from lib.prompts.prompt_utils import (
     yaml_section,
 )
 
+# 与 shared/video_avoid.md 的共享排除项声明保持一致：扩展到覆盖位置/空间/形变类负向项。
+SHARED_VIDEO_AVOID = "BGM、文字字幕、水印、Logo、不要人物无逻辑乱跑、不要空间混乱、不要轴线错乱、不要肢体扭曲、不要人脸变形、不要缩放漂移"
+
 
 class TestPromptUtils:
     def test_image_prompt_to_yaml_keeps_expected_shape(self):
@@ -91,7 +94,7 @@ class TestPromptUtils:
         # 反向约束以 Avoid 键收尾：有对话时置于 Dialogue 之后
         assert list(parsed_a)[-2:] == ["Dialogue", "Avoid"]
         assert list(parsed_b)[-1] == "Avoid"
-        assert parsed_a["Avoid"] == "BGM、文字字幕、水印、Logo"
+        assert parsed_a["Avoid"] == SHARED_VIDEO_AVOID
 
     def test_structured_checks(self):
         assert is_structured_image_prompt({"scene": "x"})
@@ -339,7 +342,7 @@ class TestRenderStoryboardVideoPrompt:
     @pytest.mark.parametrize("prompt", ["镜头缓缓推近", {"action": "起身", "camera_motion": "Static"}])
     def test_both_forms_exclude_logos_and_keep_one_avoid_line_on_rerender(self, prompt):
         rendered = self._render(prompt)
-        assert rendered.endswith("Avoid: BGM、文字字幕、水印、Logo")
+        assert rendered.endswith(f"Avoid: {SHARED_VIDEO_AVOID}")
         assert self._render(rendered) == rendered
         assert rendered.count("Avoid:") == 1
 
@@ -355,7 +358,7 @@ class TestRenderStoryboardVideoPrompt:
         """纯文本回贴中不含 Logo 的 Avoid 行由模版完整声明替换，不叠出第二行。"""
         rendered = self._render(legacy, content_mode="narration")
         assert rendered.count("Avoid:") == 1
-        assert rendered.endswith("Avoid: BGM、文字字幕、水印、Logo")
+        assert rendered.endswith(f"Avoid: {SHARED_VIDEO_AVOID}")
         assert self._render(rendered, content_mode="narration") == rendered
 
     def test_a_hand_edited_avoid_line_is_replaced_by_the_shared_declaration(self):
@@ -363,14 +366,14 @@ class TestRenderStoryboardVideoPrompt:
         rendered = self._render("镜头缓缓推近\n\nAvoid: BGM、文字字幕、水印、Logo、红色", content_mode="narration")
 
         assert rendered.count("Avoid:") == 1
-        assert rendered.endswith("Avoid: BGM、文字字幕、水印、Logo")
+        assert rendered.endswith(f"Avoid: {SHARED_VIDEO_AVOID}")
 
     def test_speech_sections_appended_after_an_avoid_line_keep_the_declaration_last(self):
         """发声声明段追加在正文的 Avoid 行之后时，渲染出口仍把那一行归回末尾。"""
         rendered = self._render("镜头缓缓推近\n\nAvoid: BGM、文字字幕、水印、Logo")
 
         assert rendered.count("Avoid:") == 1
-        assert rendered.endswith("Avoid: BGM、文字字幕、水印、Logo")
+        assert rendered.endswith(f"Avoid: {SHARED_VIDEO_AVOID}")
         assert "Line: 你来了。" in rendered
 
     def test_speech_sections_already_in_body_are_not_appended_twice(self):

@@ -51,6 +51,44 @@ class PromptDialect:
         """一个发声记号的渲染结果：``subject`` 是主体名（不含尖括号），``text`` 是逐字台词。"""
         return self.speech.format(subject=subject, text=text)
 
+    def timecode(self, segment_no: int, start: int, end: int) -> str:
+        """把一个分镜的起止秒渲染成当前模型认得的时间标记。
+
+        万相 3.0 官方要求多镜头带「镜头序号 + 起止秒」且每段 2–5 秒、首尾相接
+        （``分段N[起-止秒]`` / ``第N个镜头[起-止秒]``）；Seedance 官方明确「对精确时间
+        （0–3 秒）支持不稳定，建议用镜头 1/2/3 按顺序描述而非秒级硬卡」，MiniMax 同样以
+        自然语言分镜为主。故非万相族回落到只写镜头序号、不写秒数，避免把模型认不牢的
+        秒级时间戳硬塞进去。
+
+        标记里只放序号与起止秒，不重复「画面内容」等前缀——正文里若已有描述性前缀，
+        渲染后只会多出一个 ``：``，不影响语义。
+        """
+        if self.name == "wan3":
+            return f"分段{segment_no}[{start}-{end}秒]："
+        return f"镜头{segment_no}："
+
+    def subject_lock_prefix(self) -> str:
+        """主体锁定回述前缀。万相 3.0 官方用「主体锁定：」显式锚定多角色身份（脸 / 发型 / 体型），
+        其余中文模型同样受益；非中文模型可在此按方言改写（如英文 ``"Locked subjects:"``）。
+
+        只暴露前缀、不替调用方决定列哪些主体——列哪些角色由渲染层按实际随请求发出的参考图派生。
+        """
+        return "主体锁定："
+
+    def transition(self, kind: str = "cut") -> str:
+        """镜头间转场指令，写在上一镜头段末。
+
+        万相 3.0 官方在段末写 ``硬切转场`` / ``叠化转场``；其余模型无官方转场 token（硬切为默认
+        行为），回落空串，不把认不牢的指令硬塞进去——这也是切换 Seedance / MiniMax 时不会出语法
+        杂音的原因。
+
+        ``kind`` 取 ``"cut"``（硬切，默认）或 ``"dissolve"``（叠化）；溶解需由正文 / 字段显式给出，
+        渲染层目前统一回落硬切。
+        """
+        if self.name != "wan3":
+            return ""
+        return "硬切转场" if kind == "cut" else "叠化转场"
+
 
 #: 方言化之前的原写法。认不得的模型一律用它，保证既有项目的成片与预览不因本模块的存在而改变。
 GENERIC = PromptDialect(

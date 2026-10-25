@@ -101,3 +101,33 @@ def test_dialect_audio_reference_format():
     assert SEEDANCE.audio(2) == "Audio 2"
     assert WAN30.audio(2) == "音频2"
     assert MINIMAX_H3.audio(2) == "@Audio2"
+
+
+def test_dialect_timecode_format():
+    """时间码格式按方言分：万相要「分段N[起-止秒]」，其余模型只用镜头序号、不写秒数。
+
+    万相靠「序号 + 起止秒」锚定多镜头时序；Seedance / MiniMax 官方建议用镜头序号而非秒级
+    硬卡，秒级时间戳它们认不牢，故回落到「镜头N：」。
+    """
+    assert WAN30.timecode(1, 0, 4) == "分段1[0-4秒]："
+    assert WAN30.timecode(2, 4, 9) == "分段2[4-9秒]："
+    assert SEEDANCE.timecode(1, 0, 4) == "镜头1："
+    assert MINIMAX_H3.timecode(3, 9, 15) == "镜头3："
+    assert GENERIC.timecode(1, 0, 3) == "镜头1："
+
+
+def test_dialect_subject_lock_prefix_is_universal():
+    """主体锁定回述是通用身份锚定，所有中文方言同一前缀；非中文方言可在此改写。"""
+    assert WAN30.subject_lock_prefix() == "主体锁定："
+    assert SEEDANCE.subject_lock_prefix() == "主体锁定："
+    assert MINIMAX_H3.subject_lock_prefix() == "主体锁定："
+    assert GENERIC.subject_lock_prefix() == "主体锁定："
+
+
+def test_dialect_transition_only_emitted_for_wan():
+    """转场指令只有万相 3.0 有官方 token；其余方言回落空串，不把认不牢的指令硬塞进去。"""
+    assert WAN30.transition("cut") == "硬切转场"
+    assert WAN30.transition("dissolve") == "叠化转场"
+    assert SEEDANCE.transition("cut") == ""
+    assert MINIMAX_H3.transition("cut") == ""
+    assert GENERIC.transition("cut") == ""

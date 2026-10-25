@@ -8,18 +8,24 @@
 
 - **第一段**：``<X>@图片N`` 简式绑定（图片编号 = 随请求发出的参考图顺序）+ 声音声明集中
   声明区（``<X>的台词音色参考 @音频N，只取音色、语速与情绪，台词以正文为准，声音特征：…``）。听得到声音的 A/B 类均注入声音特征，
-  两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入
+  两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入。多人同框时追加「固定空间关系」与
+  「主体锁定」两条声明，分别锁站位 / 朝向与强化脸 / 发型 / 体型一致（万相 3.0 官方写法，前缀走方言）。
 - **第二段**：单元正文 + 角色台词记号（``<X>说 {台词}``）；无归属旁白（裸 ``{台词}``）
   不下发视频模型，由 TTS / 后期配音承担
 - **第三段**：共享风格块 + ``Avoid`` 行（视频负向提示词，本路径的反向约束全部由它承担）；
   画面里有两个及以上不同角色时追加分身或双胞胎排除项。带商品参考图时其后再接商品高保真声明
 
 所有创作类型的输入均是 unit 正文这一段自由文本，正文只写第二段；主体绑定与参考图顺序都经
-``@[X]`` mention 解析派生（:func:`render_unit_prompt`）。文本不含绝对秒数，时长走请求字段。
+``@[X]`` mention 解析派生（:func:`render_unit_prompt`）。正文可含分镜时间码（如
+``（0—4秒）`` / ``（00:00-00:03）``，多见于分镜式 unit），这类时间码**不做绝对秒数的时长控制**
+——总时长仍由请求字段 ``duration`` 承担——但会被 :func:`_normalize_timecodes` 归一为当前视频
+模型认得的格式（万相 3.0 用 ``分段N[起-止秒]``，其余模型只留镜头序号），以补上官方要求的
+「镜头序号 + 起止秒」结构，让时间段真正对得上。
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -161,6 +167,8 @@ def render_unit_prompt(
             settings,
             request_character_forms,
             dialect,
+            co_present_characters,
+            character_image_no,
         ),
         body=_render_segment_two(text, subjects, characters, catalog, dialect),
         style=normalize_style_value(project.get("style")),
@@ -259,6 +267,8 @@ def _render_segment_one(
     settings: VoiceRenderSettings,
     character_forms: dict[str, list[str]],
     dialect: PromptDialect,
+    co_present_characters: Collection[str] = (),
+    character_image_no: dict[str, int] | None = None,
 ) -> str:
     """主体绑定 + 声音声明。
 
@@ -280,7 +290,11 @@ def _render_segment_one(
     if bindings:
         lines.append(bindings + "。")
     lines.extend(_render_form_declarations(character_forms))
+    # 多个角色参考图同现时回述「主体锁定」，强化脸 / 发型 / 体型一致（万相 3.0 官方写法）。
+    lines.extend(_render_subject_lock(character_image_no or {}, dialect))
     lines.extend(_render_voice_declarations(speakers, audio_no, characters, settings, dialect))
+    # 多人同框时把站位 / 朝向约束显式锚定一次，避免角色位置乱跑（万相 3.0 官方写法）。
+    lines.extend(_render_spatial_relations(co_present_characters))
     return "\n".join(lines)
 
 
@@ -340,6 +354,11 @@ def _render_segment_two(
     这个人 / 物」，不指向图号，故与参考图编号解耦：裁掉图的名字照样是主体，只有未登记的
     mention 才留编辑器原文（配 ``ref_warn_unregistered_mention``）。
 
+    分镜式 unit 的正文带括号式时间码（``（0—4秒）`` / ``（00:00-00:03）``）时，每一处原始时间码
+    即一个镜头开始：时间码被 :func:`_normalize_timecodes` 归一成方言格式，并在上一镜头的段末补
+    转场指令（万相 3.0 官方写 ``硬切转场``，其余方言回落空串，见 :func:`_append_transition`）。
+    作者随手写的 ``镜头N：`` 不含括号式时间码，不会被误判成转场锚点。
+
     正文逐行原样渲染，不再重排或加分段前缀：正文是作者写下的唯一真相，行文顺序即传达顺序。
     记号可写在行内任意位置，重组按位置就地替换、描述部分留在原处。说话人按**资产表**判定
     而非参考图列表：纯画外角色无参考图，台词照常重组。未登记的说话人按原文发送（warning 已由
@@ -356,9 +375,11 @@ def _render_segment_two(
     旁白对口型。同一行的画面描述照常渲染，只有记号本身消失。
     """
     lines: list[str] = []
-    for line in text.splitlines():
+    # 整段正文共用一个时间码序号计数器：分段 N 跨行连续递增，不每行各从 1 起。
+    timecode_counter: dict[str, int] = {"n": 0}
+    for raw in text.splitlines():
         pieces: list[str | None] = []
-        for part in split_speech_line(line):
+        for part in split_speech_line(raw):
             if isinstance(part, str):
                 pieces.append(render_mentions_as_subjects(part, subjects))
             elif not part.speaker:
@@ -367,8 +388,51 @@ def _render_segment_two(
                 pieces.append(dialect.say(_speaker_subject(part, catalog), part.text))
             else:
                 pieces.append(render_mentions_as_subjects(part.raw, subjects))
-        lines.append(_join_line_pieces(pieces))
-    return "\n".join(line for line in lines if line.strip())
+        line = _join_line_pieces(pieces)
+        # 正文可能带分镜时间码（分镜式 unit），统一成当前模型认得的格式，补上官方要求的
+        # 「镜头序号 + 起止秒」结构，让时间段真正对得上。
+        line = _normalize_timecodes(line, dialect, timecode_counter)
+        lines.append(line)
+    body = "\n".join(line for line in lines if line.strip())
+    # 多镜头：在已归一化的时间码上补段末转场（见 :func:`_inject_transitions`）。
+    return _inject_transitions(body, dialect)
+
+
+def _normalized_timecode_re(dialect: PromptDialect) -> re.Pattern[str]:
+    """已归一化的时间码记号正则：万相是 ``分段N[起-止秒]：``，其余方言回落 ``镜头N：``。
+
+    万相只认 ``分段N[…]`` 形态，作者随手写的 ``镜头N：`` 不会被误判成转场锚点；其余方言的
+    ``镜头N：`` 与作者写法同形，但转场指令对非万相回落空串，不注入，故无副作用。
+    """
+    if dialect.name == "wan3":
+        return re.compile(r"分段\d+\[[^\]]*\]\uff1a")
+    return re.compile(r"镜头\d+\uff1a")
+
+
+def _inject_transitions(body: str, dialect: PromptDialect) -> str:
+    """在已归一化的正文里，给每个分镜时间码（除第一个外）之前补段末转场指令。
+
+    转场挂在上一镜头的段末：时间码若在行首（前有换行）则把指令落到上一行末并保留换行；
+    否则插在本行时间码之前（上一镜头内容末句之后）。方言回落空串时直接返回，不注入。
+
+    从后往前插，避免前面匹配的位置因插入而偏移。
+    """
+    clause = dialect.transition("cut")
+    if not clause:
+        return body
+    matches = list(_normalized_timecode_re(dialect).finditer(body))
+    if len(matches) < 2:
+        return body
+    for match in reversed(matches[1:]):
+        start = match.start()
+        if start > 0 and body[start - 1] == "\n":
+            # 跨行：上一行末补转场，保留换行
+            injected = _append_transition(body[: start - 1].rstrip(), dialect)
+            body = injected + "\n" + body[start:]
+        else:
+            injected = _append_transition(body[:start].rstrip(), dialect)
+            body = injected + body[start:]
+    return body
 
 
 def _speaker_subject(mark: SpeechMark, catalog: ReferenceCatalog) -> str:
@@ -411,6 +475,92 @@ def _join_line_pieces(pieces: list[str | None]) -> str:
     if dropped:
         rendered = rendered.rstrip(_MARK_JOINERS + _MARK_SPACES)
     return rendered
+
+
+#: 正文里 LLM 写的分镜时间码：``（0—4秒）`` / ``（0-4秒）`` / ``（00:00-00:03）`` 等。
+#: 万相 3.0 要「序号 + 起止秒」，其余模型对秒级硬卡支持不稳，故统一收口到方言的
+#: :meth:`PromptDialect.timecode`，由方言决定要不要保留秒数。
+# 注意：可选的全角冒号必须用 ``\uff1a`` 转义——直接用字面 ``：`` 写在「全角括号类之后
+# 的可选组」里，部分 Python 正则版本会匹配不到。结尾再做一道双冒号兜底以防万一。
+_TIMECODE_SECONDS_RE = re.compile(r"[（(]\s*(\d+)\s*[—\-]\s*(\d+)\s*秒\s*[）)](\uff1a:)?")
+_TIMECODE_CLOCK_RE = re.compile(r"[（(]\s*(\d+)\s*:\s*(\d+)\s*[—\-]\s*(\d+)\s*:\s*(\d+)\s*[）)](\uff1a:)?")
+
+def _normalize_timecodes(text: str, dialect: PromptDialect, counter: dict[str, int] | None = None) -> str:
+    """把正文里的分镜时间码统一成当前模型认得的格式。
+
+    万相 3.0 收到的必须是 ``分段N[起-止秒]``（带镜头序号、连字符、方括号），否则模型只
+    把 ``duration`` 当容器、自行填补节奏，观感上「时间段对不上」。Seedance / MiniMax / 通用
+    回落只用镜头序号、丢掉秒数（其官方建议用镜头 1/2/3 按事件顺序描述而非秒级硬卡）。
+
+    只改时间码记号本身，正文的其它描述原样保留；同一次渲染内序号从 1 递增——``counter``
+    由调用方在整段正文上保持唯一，避免多行单元里序号每行各从 1 起（那会让 ``分段1`` 重复）。
+    """
+    if counter is None:
+        counter = {"n": 0}
+
+    def _seconds(match: re.Match[str]) -> str:
+        counter["n"] += 1
+        return dialect.timecode(counter["n"], int(match.group(1)), int(match.group(2)))
+
+    def _clock(match: re.Match[str]) -> str:
+        counter["n"] += 1
+        start = int(match.group(1)) * 60 + int(match.group(2))
+        end = int(match.group(3)) * 60 + int(match.group(4))
+        return dialect.timecode(counter["n"], start, end)
+
+    text = _TIMECODE_CLOCK_RE.sub(_clock, text)
+    text = _TIMECODE_SECONDS_RE.sub(_seconds, text)
+    # 兜底：消除任何残留的相邻全角 / 半角双冒号（如原文本时间码后已带冒号）
+    text = text.replace("：：", "：").replace("::", ":")
+    return text
+
+
+def _render_subject_lock(character_image_no: dict[str, int], dialect: PromptDialect) -> list[str]:
+    """两个及以上角色参考图同现时，用官方「主体锁定」回述把身份锚定一次，强化脸 / 发型 / 体型一致。
+
+    只列随请求发出的角色参考图（``<name>图N``），与第一段绑定行同口径；单人 / 无角色参考图时不产出，
+    避免无谓约束挤占配额。换模型时前缀走 :meth:`PromptDialect.subject_lock_prefix`，无需改渲染层。
+    """
+    prefix = dialect.subject_lock_prefix()
+    if not prefix or len(character_image_no) < 2:
+        return []
+    marks = "、".join(f"<{name}>图{n}" for name, n in character_image_no.items())
+    return [f"{prefix}{marks}。"]
+
+
+def _append_transition(line: str, dialect: PromptDialect) -> str:
+    """给一个镜头的段末补转场指令（写在上一镜头内容末句）。
+
+    方言回落空串时原样返回（Seedance / MiniMax 无官方转场 token，硬切为默认行为）。标点与正文
+    末句自然衔接：末句是收句标点则改逗号续写，已是逗号则直接续，无标点则补逗号。
+    """
+    token = dialect.transition("cut")
+    if not token or not line.strip():
+        return line
+    line = line.rstrip()
+    if line[-1] in _MARK_TERMINATORS:
+        line = line[:-1] + "，"
+    elif line[-1] not in _MARK_JOINERS:
+        line += "，"
+    return line + token + "。"
+
+
+def _render_spatial_relations(co_present_characters: Collection[str]) -> list[str]:
+    """两个及以上角色同框时，用「固定空间关系」把正文里的站位 / 朝向约束显式锚定一次。
+
+    万相 3.0 官方用这种声明锁定多人站位（如「叶星辰在左侧，女内门弟子在右侧」）；其余模型
+    吃自然语言同样受益。只声明、不禁止：正文里写明的位移动作（如「从画面右侧进入」）仍被允许，
+    只是不得无逻辑乱跑、不得瞬移、不得轴线错乱——后者已由视频负向清单兜底。
+
+    单人 / 无同框角色时不产出，避免无谓约束挤占配额。
+    """
+    if len(co_present_characters) < 2:
+        return []
+    marks = "、".join(f"<{name}>" for name in co_present_characters)
+    return [
+        f"固定空间关系：{marks} 的站位、朝向与相互位置以正文「构图」「画面内容」描述为准，"
+        f"须在整个片段中保持一致；仅在正文明确写明的位移动作中移动，不得凭空换位、不得瞬移、不得轴线错乱。"
+    ]
 
 
 def resolve_reference_audio_paths(project: dict, project_path: Path) -> dict[str, Path]:

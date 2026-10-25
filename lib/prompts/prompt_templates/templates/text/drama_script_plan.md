@@ -69,17 +69,21 @@ protected: false
 
 {% if episode_outline %}
 <episode_outline>
-本集大纲（分集规划设计，剧本内容应覆盖全部故事节点）：
+本集大纲（分集规划已定，剧本必须严格按此创作，不得偏离）：
 {% if episode_outline.title %}
 本集标题：{{ episode_outline.title }}
 {% endif %}
 {{ partial("shared/lists/episode_outline_lines", outline=episode_outline) }}
+
+严格按本集大纲创作（遵循已定的分集边界与节点）：
+- 边界锁定：novel_text 即为本集按 end_anchor 切定的原文范围，剧本只改编此范围内的内容；不得外扩到相邻集的情节，也不得自行新增原文范围之外的主要事件。
+- 节点全覆盖：大纲里的每条「故事节点」都必须对应至少一个分镜，分镜的情节推进顺序须与故事节点一致，不得遗漏任何一条；允许一条节点拆成多个分镜，但不得把节点之外、原文范围之外的额外主线塞进本集。
+{% if episode_outline.hook or episode_outline.next_episode_teaser %}
+
+- 钩子定格结尾：本集「集尾钩子」描述的悬念 / 未完成动作 / 反转，必须在结尾的分镜实际演出来并定格在画面；有下集预告语时只用于设计结尾衔接，用结尾画面或对白自然引出，不要生硬插入「下集预告」字样的旁白，也不得提前把下集情节写进本集。
+{% endif %}
 </episode_outline>
 
-{% if episode_outline.hook or episode_outline.next_episode_teaser %}
-末场（最后一个或几个分镜）的画面与对白须实际呈现集尾钩子的戏剧内容，让悬念定格在画面上；有下集预告语时，用结尾画面或对白自然引出，不要生硬插入「下集预告」字样的旁白。
-
-{% endif %}
 {% endif %}
 {% if next_episode_outline %}
 <next_episode_outline>

@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { EditClip, EditTimelinePreviewMedia, EditTimelineReadout } from "@/types/edit-timeline";
+import type { EditClip, EditPreviewUnitMedia, EditTimelinePreviewMedia, EditTimelineReadout } from "@/types/edit-timeline";
 
 import { buildPlaybackPlan } from "./playback-schedule";
 import {
   bgmPlacements,
+  mergeUnitMedia,
   narrationPlacements,
   narrationSpans,
   placeSubtitles,
@@ -254,5 +255,49 @@ describe("subtitleLayout", () => {
       centerFromTopPercent: 90,
       maxWidthPercent: 60,
     });
+  });
+});
+
+describe("mergeUnitMedia", () => {
+  const shell: EditTimelinePreviewMedia = {
+    timeline_id: "tl-1",
+    revision: 2,
+    narration: "without_narration",
+    units: [
+      { unit_id: "E1U1", provider_audio: true, narration_audio: null, subtitles_follow_narration: false, subtitles: [] },
+      { unit_id: "E2U1", provider_audio: false, narration_audio: null, subtitles_follow_narration: false, subtitles: [] },
+    ],
+    bgm: [],
+  };
+
+  it("replaces the matching unit's subtitles without disturbing order or sibling units", () => {
+    const unit: EditPreviewUnitMedia = {
+      unit_id: "E1U1",
+      provider_audio: true,
+      narration_audio: null,
+      subtitles_follow_narration: false,
+      subtitles: [
+        { start: 0, duration: 1.2, text: "第一句" },
+        { start: 1.3, duration: 2, text: "第二句" },
+      ],
+    };
+    const merged = mergeUnitMedia(shell, unit);
+
+    expect(merged.units.map((u) => u.unit_id)).toEqual(["E1U1", "E2U1"]);
+    expect(merged.units[0].subtitles).toEqual(unit.subtitles);
+    // 兄弟单元与外壳其余字段原样保留。
+    expect(merged.units[1]).toEqual(shell.units[1]);
+    expect(merged.bgm).toBe(shell.bgm);
+  });
+
+  it("leaves the shell unchanged when the unit id is not present", () => {
+    const unit: EditPreviewUnitMedia = {
+      unit_id: "E9U9",
+      provider_audio: true,
+      narration_audio: null,
+      subtitles_follow_narration: false,
+      subtitles: [{ start: 0, duration: 1, text: "x" }],
+    };
+    expect(mergeUnitMedia(shell, unit)).toEqual(shell);
   });
 });

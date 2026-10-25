@@ -150,6 +150,7 @@ import type {
   WorkflowStatus,
 } from "@/types/workflow";
 import type {
+  EditPreviewUnitMedia,
   EditTimelinePreviewMedia,
   EditTimelineReadout,
   EditTimelineSummary,
@@ -831,14 +832,28 @@ class API {
     );
   }
 
-  /** 剪辑时间线最新修订的预览素材层：各视频单元的旁白配音与字幕条目。 */
+  /** 剪辑时间线最新修订的预览素材层：各视频单元的旁白配音与字幕条目。
+   *  `includeSubtitles=false` 只回外壳（旁白/原声/BGM），字幕由 caller 按单元并发补拉。 */
   static async getEditTimelinePreviewMedia(
     projectName: string,
     timelineId: string,
-    options: { signal?: AbortSignal } = {},
+    options: { signal?: AbortSignal; includeSubtitles?: boolean } = {},
   ): Promise<EditTimelinePreviewMedia> {
+    const query = options.includeSubtitles === false ? "?include_subtitles=false" : "";
+    return this.request(`${this.editTimelinePath(projectName, timelineId)}/preview-media${query}`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 时间线内单个单元的素材层（含字幕）；单元不在时间线里时 404。用于外壳返回后按单元并发补拉字幕。 */
+  static async getEditTimelineUnitMedia(
+    projectName: string,
+    timelineId: string,
+    unitId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<EditPreviewUnitMedia> {
     return this.request(
-      `${this.editTimelinePath(projectName, timelineId)}/preview-media`,
+      `${this.editTimelinePath(projectName, timelineId)}/preview-media/units/${encodeURIComponent(unitId)}`,
       { signal: options.signal },
     );
   }

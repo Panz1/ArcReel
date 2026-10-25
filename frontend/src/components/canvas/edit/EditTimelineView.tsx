@@ -30,6 +30,7 @@ import {
   narrationPlacements,
   narrationSpans,
   placeSubtitles,
+  mergeUnitMedia,
   type AudioPlacement,
 } from "./preview-tracks";
 import {
@@ -209,9 +210,23 @@ export function EditTimelineView({
   useEffect(() => {
     if (!selectedId) return;
     const controller = new AbortController();
-    API.getEditTimelinePreviewMedia(projectName, selectedId, { signal: controller.signal })
-      .then((value) => {
-        if (!controller.signal.aborted) setPreviewMedia({ timelineId: selectedId, value });
+    // 先拉外壳（不含字幕）：视频轨、音频轨、BGM 瞬时搭起，字幕不必等全部单元算完。
+    API.getEditTimelinePreviewMedia(projectName, selectedId, { signal: controller.signal, includeSubtitles: false })
+      .then((shell) => {
+        if (controller.signal.aborted) return;
+        setPreviewMedia({ timelineId: selectedId, value: shell });
+        // 每个单元并发补拉字幕；哪个单元先算完，哪个先出现在轨道上。
+        for (const unit of shell.units) {
+          API.getEditTimelineUnitMedia(projectName, selectedId, unit.unit_id, { signal: controller.signal })
+            .then((unitMedia) => {
+              if (controller.signal.aborted) return;
+              setPreviewMedia((previous) => {
+                if (!previous || previous.timelineId !== selectedId) return previous;
+                return { timelineId: selectedId, value: mergeUnitMedia(previous.value, unitMedia) };
+              });
+            })
+            .catch(() => {});
+        }
       })
       .catch(() => {});
     return () => controller.abort();

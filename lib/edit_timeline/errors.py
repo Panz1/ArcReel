@@ -18,6 +18,7 @@ type EditTimelineErrorCode = Literal[
     "revision_conflict",
     "revision_summary_invalid",
     "revision_unchanged",
+    "unit_not_in_timeline",
 ]
 
 
@@ -41,6 +42,7 @@ _MESSAGE_KEYS: dict[str, str] = {
     "timeline_name_invalid": "edit_timeline_name_invalid",
     "script_invalid": "edit_timeline_script_invalid",
     "timeline_invalid": "edit_timeline_invalid",
+    "unit_not_in_timeline": "edit_timeline_unit_not_in_timeline",
 }
 
 

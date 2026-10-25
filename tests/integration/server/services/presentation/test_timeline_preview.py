@@ -5,11 +5,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from lib.artifacts.version_manager import VersionManager
 from lib.bgm.service import BgmLibraryService
-from lib.edit_timeline import EditTimelineService
+from lib.edit_timeline import EditTimelineError, EditTimelineService
 from lib.edit_timeline.operations import InsertBgm
-from server.services.presentation.timeline_preview import TimelinePreviewMedia, TimelinePreviewService
+from server.services.presentation.timeline_preview import (
+    TimelinePreviewMedia,
+    TimelinePreviewService,
+)
 from tests.factories import wav_bytes
 from tests.integration.server.services.presentation.timeline_render_support import (
     CREATOR,
@@ -131,3 +136,43 @@ async def test_bgm_on_the_track_is_previewed_with_its_loudness_gain(tmp_path: Pa
 
     (project_path / used.file).unlink()
     assert (await TimelinePreviewService(pm).media("demo", timeline_id)).bgm == ()
+
+
+async def test_shell_media_skips_subtitle_alignment_but_keeps_cheap_data(tmp_path: Path) -> None:
+    # include_subtitles=False 回外壳：单元齐全、旁白/原声/BGM 都在，唯独字幕为空。
+    # 剪辑页先用外壳把视频轨音频轨搭起来，字幕再按单元并发补齐，不等全部单元算完。
+    pm, _project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
+
+    media = await TimelinePreviewService(pm).media("demo", timeline_id, include_subtitles=False)
+
+    assert [unit.unit_id for unit in media.units] == ["E1S01", "E1S02"]
+    assert all(unit.subtitles == () for unit in media.units)
+    assert media.units[0].narration_audio is not None
+    assert media.units[0].provider_audio is True
+
+
+async def test_unit_media_returns_single_unit_with_subtitles(tmp_path: Path) -> None:
+    pm, _project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
+
+    unit = await TimelinePreviewService(pm).unit_media("demo", timeline_id, "E1S01")
+
+    assert unit.unit_id == "E1S01"
+    assert len(unit.subtitles) == 1
+    assert unit.subtitles[0].text == "旁白一句"
+    # 单单元返回与整份取到的同一单元一致（外壳补齐即替换，字段不丢）。
+    whole = await TimelinePreviewService(pm).media("demo", timeline_id)
+    same = next(u for u in whole.units if u.unit_id == "E1S01")
+    assert unit.narration_audio == same.narration_audio
+    assert unit.provider_audio == same.provider_audio
+
+
+async def test_unit_media_rejects_unit_not_in_timeline(tmp_path: Path) -> None:
+    pm, _project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
+
+    with pytest.raises(EditTimelineError) as exc_info:
+        await TimelinePreviewService(pm).unit_media("demo", timeline_id, "E1S99")
+    assert exc_info.value.code == "unit_not_in_timeline"
+

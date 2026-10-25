@@ -45,7 +45,11 @@ from server.auth import CurrentUser, verify_download_token
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.media_tools.final_cuts import final_cut_download_url
-from server.services.presentation.timeline_preview import TimelinePreviewMedia, TimelinePreviewService
+from server.services.presentation.timeline_preview import (
+    PreviewUnitMedia,
+    TimelinePreviewMedia,
+    TimelinePreviewService,
+)
 from server.services.tasks.render_tasks import (
     final_cut_task_request,
     jianying_draft_task_request,
@@ -117,6 +121,7 @@ _ERROR_STATUS: dict[str, int] = {
     "timeline_name_invalid": 422,
     "script_invalid": 422,
     "timeline_invalid": 422,
+    "unit_not_in_timeline": 404,
 }
 
 
@@ -368,9 +373,23 @@ async def read_edit_timeline_preview_media(
     project_name: str,
     timeline_id: str,
     service: TimelinePreviewServiceDep,
+    include_subtitles: bool = Query(True, description="为 False 时只回外壳（旁白/原声/BGM），字幕由前端按单元并发补拉"),
 ) -> TimelinePreviewMedia:
     try:
-        return await service.media(project_name, timeline_id)
+        return await service.media(project_name, timeline_id, include_subtitles=include_subtitles)
+    except EditTimelineError as exc:
+        raise edit_timeline_api_error(exc) from exc
+
+
+@router.get("/projects/{project_name}/edit-timelines/{timeline_id}/preview-media/units/{unit_id}")
+async def read_edit_timeline_unit_media(
+    project_name: str,
+    timeline_id: str,
+    unit_id: str,
+    service: TimelinePreviewServiceDep,
+) -> PreviewUnitMedia:
+    try:
+        return await service.unit_media(project_name, timeline_id, unit_id)
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
 

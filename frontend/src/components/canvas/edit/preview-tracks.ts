@@ -5,7 +5,7 @@
  * 其余字幕按视频源素材时间保留、只显示落在入出点之内的部分；同一时刻只显示一条，后一条开始时前一条截止。
  */
 
-import type { EditTimelinePreviewMedia, EditTimelineReadout } from "@/types/edit-timeline";
+import type { EditPreviewUnitMedia, EditTimelinePreviewMedia, EditTimelineReadout } from "@/types/edit-timeline";
 import type { PreviewAspect } from "@/utils/preview-aspect";
 
 import type { PlaybackPlan } from "./playback-schedule";
@@ -145,6 +145,14 @@ export function bgmPlacements(
       },
     ];
   });
+}
+
+/** 把一个单元的字幕并入已加载的外壳：外壳先回（字幕为空），各单元算完后再逐一替换。纯函数。 */
+export function mergeUnitMedia(shell: EditTimelinePreviewMedia, unit: EditPreviewUnitMedia): EditTimelinePreviewMedia {
+  return {
+    ...shell,
+    units: shell.units.map((existing) => (existing.unit_id === unit.unit_id ? unit : existing)),
+  };
 }
 
 /** 字幕摆到全局时间。只有可播放视频的片段带字幕；呈现模型物化不出的单元没有字幕条目。 */

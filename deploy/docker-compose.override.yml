@@ -22,6 +22,19 @@ services:
       # 每次启动都要走网络重下一遍，镜像源慢时（nodejs-wheel 57.9MB）能把启动拖到几分钟甚至卡死。
       # 运行时不需要这些开发工具，直接关掉，启动只剩本地包安装。
       UV_NO_DEV: "1"
+      # 字幕句级强制对齐（lib/speech/subtitle_alignment.py，docs/adr/0108）部署级开启：
+      # 仅对带音轨的单元生效（USE_TTS 的旁白配音、生成音频的对白剧单元视频音轨），
+      # 用 ASR 把台词对齐到真实发音时刻；无音频 / 未装 ASR 依赖 / 对齐失败一律
+      # 静默回退机械分配，不影响生成流程。停用：删掉本行（或改 "0"）。
+      ARCREEL_SUBTITLE_ALIGNMENT: "1"
+      # faster-whisper 的模型只从挂载的宿主机 HF 缓存离线加载：容器网络到
+      # huggingface.co 不通，联网重试只会拖慢首次对齐；模型缺失时对齐静默
+      # 回退机械分配。换模型（如 medium）需先在宿主机下载进同一缓存。
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      # 宿主机 HF 缓存（faster-whisper-small 已在其中）挂进容器供字幕对齐离线加载；
+      # 与基础 compose 的挂载合并（compose 对 volumes 取并集）。
+      - C:/Users/chuck/.cache/huggingface:/root/.cache/huggingface
     build:
       context: ../
       # 本地构建文件（含国内 PyPI 镜像），路径相对 build context

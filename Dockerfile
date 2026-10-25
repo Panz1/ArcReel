@@ -53,9 +53,11 @@ ENV PYTHONUNBUFFERED=1
 ENV TZ=Asia/Shanghai
 
 # 先复制依赖和包元数据文件，利用缓存；workspace 子包作为依赖随这一步安装，源码须先就位
+# subtitle-alignment extra 提供字幕句级强制对齐的可选依赖（faster-whisper + ctranslate2）；
+# 未装时字幕按机械分配，行为与不装一致（lib/speech/subtitle_alignment.py）
 COPY pyproject.toml uv.lock README.md ./
 COPY packages/ packages/
-RUN uv sync --no-dev --no-install-project
+RUN uv sync --no-dev --no-install-project --extra subtitle-alignment
 
 # 复制应用代码
 COPY lib/ lib/

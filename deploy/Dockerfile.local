@@ -69,7 +69,7 @@ ENV UV_INDEX_URL=https://mirrors.cloud.tencent.com/pypi/simple
 # 先复制依赖和包元数据文件，利用缓存；workspace 子包作为依赖随这一步安装，源码须先就位
 COPY pyproject.toml uv.lock README.md ./
 COPY packages/ packages/
-RUN uv sync --no-dev --no-install-project
+RUN uv sync --no-dev --no-install-project --extra subtitle-alignment
 
 # 复制应用代码
 COPY lib/ lib/

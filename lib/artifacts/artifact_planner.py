@@ -113,9 +113,11 @@ from lib.speech.speech_composition import (
 )
 from lib.speech.speech_presentation import (
     PresentationMedia,
+    SubtitleTimingPolicy,
     materialize_speech_presentation,
     presentation_artifact_paths,
 )
+from lib.speech.subtitle_alignment import alignment_source_media, build_aligned_timing, subtitle_alignment_enabled
 
 #: 清单激活把项目提升到的版本。它是 v7→v8 这一步的落点，与「项目是否为当前版本」是两件事：
 #: 后者随 ``CURRENT_PROJECT_SCHEMA_VERSION`` 走，把两者绑成一个常量会让每次 schema 升版都
@@ -1513,6 +1515,50 @@ class TargetStatePlanner:
             return DraftUnitBasis(unit_id, unavailable=True)
         return DraftUnitBasis(unit_id, presentation_digest=presentation.digest)
 
+    def _subtitle_timing(
+        self,
+        variant: RenditionVariant,
+        audio: PresentationMedia | None,
+        video: PresentationMedia | None,
+        preparation: SpeechPreparation | None,
+        *,
+        provider_audio_enabled: bool,
+        subtitle_sentences_prepared: bool,
+    ) -> SubtitleTimingPolicy | None:
+        """部署开着字幕句级对齐时构造策略（含 spans 缓存）；否则 None（机械分配）。
+
+        与 presentation_read_model 的写入路径共用 :func:`build_aligned_timing`：
+        frozen 重放与 current 依据必须和落盘时同一口径算 cue，否则已存字幕被判
+        不一致而反复重生成。音频路径经 ``_safe_present_path`` 解析，解析不出
+        （文件不在）时返回 None，本次按机械分配比对。
+
+        音频源由 :func:`alignment_source_media` 选：USE_TTS 用旁白配音；后补配音
+        变体没有旁白，对白由视频模型生成在单元视频自己的音轨里，对着视频对齐。
+        """
+
+        if preparation is None:
+            return None
+        if not subtitle_alignment_enabled():
+            return None
+        source = alignment_source_media(
+            audio if variant == USE_TTS else None,
+            video,
+            provider_audio_enabled=provider_audio_enabled,
+        )
+        if source is None:
+            return None
+        audio_path = self._safe_present_path(source.artifact_path)
+        if audio_path is None:
+            return None
+        return build_aligned_timing(
+            project=self.project,
+            audio_path=audio_path,
+            audio_content_digest=source.evidence.content_digest,
+            preparation=preparation,
+            cache_dir=self.project_dir,
+            subtitle_sentences_prepared=subtitle_sentences_prepared,
+        )
+
     def _prove_persisted_presentation(
         self,
         *,
@@ -1565,6 +1611,14 @@ class TargetStatePlanner:
                 video=frozen_video,
                 narration_audio=frozen_audio,
                 provider_audio_enabled=provider_audio_enabled,
+                timing=self._subtitle_timing(
+                    variant,
+                    frozen_audio,
+                    frozen_video,
+                    frozen_preparation,
+                    provider_audio_enabled=provider_audio_enabled,
+                    subtitle_sentences_prepared=True,
+                ),
                 subtitle_sentences_prepared=True,
             )
         except (TypeError, ValueError):
@@ -1606,6 +1660,14 @@ class TargetStatePlanner:
                     video=current_video,
                     narration_audio=current_audio,
                     provider_audio_enabled=provider_audio_enabled,
+                    timing=self._subtitle_timing(
+                        variant,
+                        current_audio,
+                        current_video,
+                        admission.preparation,
+                        provider_audio_enabled=provider_audio_enabled,
+                        subtitle_sentences_prepared=False,
+                    ),
                 )
             except (TypeError, ValueError):
                 pass

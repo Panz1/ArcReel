@@ -33,7 +33,7 @@ from lib.speech.narration_delivery import (
     build_narration_audio_basis,
 )
 from lib.speech.speech_artifact_provenance import RenditionVariant, SelectedMediaEvidence, media_content_digest
-from lib.speech.speech_composition import SpeechMode, admit_script_unit
+from lib.speech.speech_composition import SpeechMode, SpeechPreparation, admit_script_unit
 from lib.speech.speech_presentation import (
     MediaCurrency,
     MediaSelection,
@@ -41,10 +41,12 @@ from lib.speech.speech_presentation import (
     PresentationValue,
     RawPresentationMedia,
     SpeechPresentation,
+    SubtitleTimingPolicy,
     materialize_raw_video_presentation,
     materialize_speech_presentation,
     presentation_artifact_paths,
 )
+from lib.speech.subtitle_alignment import alignment_source_media, build_aligned_timing, subtitle_alignment_enabled
 from server.services.currency.artifact_version_restore import (
     TypedMediaRestoreTarget,
     parse_typed_media_version_record,
@@ -279,12 +281,21 @@ class PresentationReadModelService:
             )
 
         try:
+            timing = await self._subtitle_timing(
+                project=project,
+                project_path=project_path,
+                preparation=admission.preparation,
+                audio_media=audio_media,
+                video_media=video_media,
+                provider_audio_enabled=provider_audio_enabled,
+            )
             presentation = materialize_speech_presentation(
                 admission.preparation,
                 variant=variant,
                 video=video_media,
                 narration_audio=audio_media,
                 provider_audio_enabled=provider_audio_enabled,
+                timing=timing,
             )
         except (TypeError, ValueError) as exc:
             raise PresentationUnavailableError("selected media cannot form the requested presentation") from exc
@@ -613,6 +624,51 @@ class PresentationReadModelService:
             return "stale"
         expected = ArtifactBasisDescriptor.from_basis(build_narration_audio_basis(preparation, settings))
         return "current" if expected == selected.target.basis else "stale"
+
+    async def _subtitle_timing(
+        self,
+        *,
+        project: dict[str, Any],
+        project_path: Path,
+        preparation: SpeechPreparation,
+        audio_media: PresentationMedia | None,
+        video_media: PresentationMedia | None,
+        provider_audio_enabled: bool,
+    ) -> SubtitleTimingPolicy | None:
+        """部署开着字幕句级对齐时预计算 spans 并注入策略；没开或不可用时 None（机械分配）。
+
+        与 artifact_planner 的 frozen 重放注入同一策略：两侧必须用同一口径算 cue，
+        否则已存字幕会被判不一致而反复重生成。对齐是阻塞 CPU 计算，经 to_thread 包一层；
+        能力缺席（extra 未装、音频读不出）时 build_aligned_timing 记日志并返回 None，
+        本次物化退机械分配，下次依赖就绪后自然回到对齐。
+
+        音频源由 :func:`alignment_source_media` 选：TTS 变体用旁白配音；后补配音变体
+        （对白剧）没有旁白，对白由视频模型生成在单元视频自己的音轨里，对着视频对齐。
+        """
+
+        if not subtitle_alignment_enabled():
+            return None
+        source = alignment_source_media(
+            audio_media,
+            video_media,
+            provider_audio_enabled=provider_audio_enabled,
+        )
+        if source is None:
+            return None
+        try:
+            audio_path = safe_join(project_path, source.artifact_path, require_file=True)
+        except (OSError, ValueError) as exc:
+            raise PresentationUnavailableError(
+                f"alignment audio source is unreachable: {source.artifact_path}"
+            ) from exc
+        return await asyncio.to_thread(
+            build_aligned_timing,
+            project=project,
+            audio_path=audio_path,
+            audio_content_digest=source.evidence.content_digest,
+            preparation=preparation,
+            cache_dir=project_path,
+        )
 
     async def _materialize_media(
         self,

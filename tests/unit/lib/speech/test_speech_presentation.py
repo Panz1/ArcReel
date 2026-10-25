@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
@@ -19,6 +21,7 @@ from lib.speech.speech_presentation import (
     PresentationMedia,
     materialize_speech_presentation,
 )
+from lib.speech.subtitle_alignment import AlignedSubtitleTiming
 
 
 def _basis(kind: str, value: str) -> ArtifactBasisDescriptor:
@@ -304,3 +307,26 @@ def test_timing_policy_identity_changes_only_derived_bases() -> None:
     assert changed.video.media.evidence == baseline.video.media.evidence
     assert changed.subtitle_basis != baseline.subtitle_basis
     assert changed.presentation_basis != baseline.presentation_basis
+
+
+def test_timing_label_reports_aligned_policy() -> None:
+    preparation = _speech(SpeechMode.NARRATOR_VOICEOVER, (None, "旁白"))
+    video = _media("versions/videos/E1U01_v1.mp4", kind="v", duration=8.0)
+
+    mechanical = materialize_speech_presentation(
+        preparation,
+        variant=POST_PRODUCTION,
+        video=video,
+        provider_audio_enabled=True,
+    )
+    aligned = materialize_speech_presentation(
+        preparation,
+        variant=POST_PRODUCTION,
+        video=video,
+        provider_audio_enabled=True,
+        timing=AlignedSubtitleTiming(audio_path=Path("versions/videos/E1U01_v1.mp4"), language="zh"),
+    )
+
+    assert mechanical.timing == "mechanical"
+    assert aligned.timing == "aligned"
+    assert aligned.subtitle_artifact_dict()["timing"] == "aligned"

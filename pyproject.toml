@@ -54,6 +54,13 @@ dependencies = [
     "anthropic>=0.125.0,<1",
 ]
 
+[project.optional-dependencies]
+# 字幕句级强制对齐（lib/speech/subtitle_alignment.py）：ASR 是可选能力，
+# 未安装时 AlignedSubtitleTiming 静默回退机械分配，行为与本 extra 缺席时一致。
+subtitle-alignment = [
+    "faster-whisper>=1.1.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
@@ -303,8 +310,9 @@ forbidden_modules = ["claude_agent_sdk", "mcp"]
 
 [tool.deptry]
 # 扫描范围与 basedpyright 的 include 对齐：核心库、服务端、迁移基础设施、脚本与测试。
-# exclude 是 deptry 默认值去掉 tests（测试的 import 也要参与依赖卫生判定）再补上 worktree 目录。
-exclude = ["venv", "\\.venv", "\\.direnv", "\\.git", "setup\\.py", "\\.worktrees", "\\.claude/worktrees"]
+# exclude 是 deptry 默认值去掉 tests（测试的 import 也要参与依赖卫生判定）再补上 worktree 目录
+# 与 .workbuddy（本地验证脚本等非仓库产物，可含一次性依赖）。
+exclude = ["venv", "\\.venv", "\\.direnv", "\\.git", "setup\\.py", "\\.worktrees", "\\.claude/worktrees", "\\.workbuddy"]
 known_first_party = ["lib", "server", "alembic", "scripts", "tests"]
 
 [tool.deptry.per_rule_ignores]
@@ -318,6 +326,7 @@ DEP002 = [
     "lxml",             # BeautifulSoup 的 lxml / lxml-xml 解析器后端
     "mutmut",           # 变异测试 CLI，源码不 import 它；变异后的模块只在 mutants/ 副本里 import
     "pytest-testmon",   # pytest 插件，经 entry point 加载；按改动选测试，用法见 docs/agents/testing.md
+    "faster-whisper",   # 字幕对齐的可选 extra；经 importlib 动态导入（未装时静默回退机械分配）
 ]
 # DEP004（import 了 dev 依赖）——tests/ 与 scripts/ 在扫描范围内，deptry 无法按目录区分
 # dev 与生产文件，故逐项列出它们正当 import 的测试框架包；其余 dev 依赖仍受本规则守护。

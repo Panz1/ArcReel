@@ -207,7 +207,7 @@ class SpeechPresentation:
     subtitles: tuple[SubtitleCue, ...]
     subtitle_basis: ArtifactBasis
     presentation_basis: ArtifactBasis
-    timing: Literal["mechanical"] = "mechanical"
+    timing: Literal["mechanical", "aligned"] = "mechanical"
     subtitles_adjustable: bool = True
     provenance: Literal["verified"] = "verified"
 
@@ -447,7 +447,18 @@ def materialize_speech_presentation(
         subtitles=subtitles,
         subtitle_basis=subtitle_basis,
         presentation_basis=presentation_basis,
+        timing=_subtitle_timing_label(timing_adapter),
     )
+
+
+def _subtitle_timing_label(policy: SubtitleTimingPolicy) -> Literal["mechanical", "aligned"]:
+    """字幕产物的计时标签：句级强制对齐或机械分配（阅读单位比例）。
+
+    只给人看的粗标签；精确的策略身份（模型、语种、版本）在 subtitle basis 的
+    digest 里（``timing_policy`` 进 basis 输入）。未来新增计时策略时在这里补标签。
+    """
+
+    return "aligned" if policy.basis_identity.get("kind") == "aligned-sentence-forced-alignment" else "mechanical"
 
 
 def _duration_microseconds(seconds: float) -> int:

@@ -26,6 +26,7 @@ from lib.jianying_draft.basis import (
 )
 from lib.jianying_draft.errors import JianyingDraftError
 from lib.project.project_manager import ProjectManager, get_project_manager
+from server.services.tasks.subtitle_alignment_tasks import SUBTITLE_ALIGNMENT_TASK_TYPE, execute_subtitle_alignment_task
 
 RENDER_FINAL_CUT_TASK_TYPE = "render_final_cut"
 RENDER_JIANYING_DRAFT_TASK_TYPE = "render_jianying_draft"
@@ -157,6 +158,8 @@ async def execute_jianying_draft_task(task: dict[str, Any], projects: ProjectMan
 RENDER_TASK_EXECUTORS: dict[str, RenderTaskExecutor] = {
     RENDER_FINAL_CUT_TASK_TYPE: execute_final_cut_task,
     RENDER_JIANYING_DRAFT_TASK_TYPE: execute_jianying_draft_task,
+    # 字幕对齐预热不走渲染请求通道（无产物身份、尽力而为），只借用 render 车道的低并发执行位。
+    SUBTITLE_ALIGNMENT_TASK_TYPE: execute_subtitle_alignment_task,
 }
 """``render`` 车道的任务类型 → 执行器。"""
 

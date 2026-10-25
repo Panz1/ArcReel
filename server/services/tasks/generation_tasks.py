@@ -146,6 +146,7 @@ from server.services.tasks.generation_context import (
 from server.services.tasks.image_edit_tasks import execute_image_edit_task
 from server.services.tasks.reference_video_tasks import execute_reference_video_task
 from server.services.tasks.render_tasks import execute_render_task
+from server.services.tasks.subtitle_alignment_tasks import enqueue_subtitle_alignment_prewarm
 
 logger = logging.getLogger(__name__)
 
@@ -1934,4 +1935,16 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
             resource_id=resource_id,
             payload=payload,
         )
+        # 字幕对齐预热（docs/adr/0108）：旁白配音或带音频的视频落盘并选中后立刻后台对齐，
+        # 剪辑页打开时字幕即取即用。尽力而为，失败不影响本任务的成功语义。
+        if task_type in ("tts", "video", "reference_video"):
+            await enqueue_subtitle_alignment_prewarm(
+                get_generation_queue(),
+                project_name=project_name,
+                task_type=task_type,
+                resource_id=resource_id,
+                version=result.get("version") if isinstance(result, dict) else None,
+                script_file=task.get("script_file"),
+                user_id=user_id,
+            )
         return result

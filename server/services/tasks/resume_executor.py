@@ -13,6 +13,7 @@ from typing import Any
 
 from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
+from lib.generation.generation_queue import get_generation_queue
 from lib.project.project_change_hints import project_change_source
 from lib.script.reference_video.execution_checkpoint import (
     ReferenceExecutionIdentityError,
@@ -33,6 +34,7 @@ from server.services.tasks.generation_tasks import (
     get_project_manager,
 )
 from server.services.tasks.reference_video_tasks import finalize_reference_video_unit
+from server.services.tasks.subtitle_alignment_tasks import enqueue_subtitle_alignment_prewarm
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +224,7 @@ async def execute_resume_video_task(
                     )
                 return selected_result
 
-            return await complete_video_artifact_commit(
+            result = await complete_video_artifact_commit(
                 committer=artifact_committer,
                 versions=generator.versions,
                 resource_type=resource_type,
@@ -233,6 +235,17 @@ async def execute_resume_video_task(
                 warnings=warnings,
                 on_completed=_emit_success,
             )
+            # 与首跑同一条预热路径：续跑落盘的视频同样要在成功后预热字幕对齐。
+            await enqueue_subtitle_alignment_prewarm(
+                get_generation_queue(),
+                project_name=project_name,
+                task_type=task_type,
+                resource_id=resource_id,
+                version=version,
+                script_file=task.get("script_file") or checkpoint.script_file,
+                user_id=user_id,
+            )
+            return result
     finally:
         try:
             if artifact_committer is not None:

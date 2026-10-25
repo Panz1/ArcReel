@@ -13,6 +13,7 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.models import GridGeneration
 from server.services.grid.grid_split import GridImageNotReadyError, apply_grid_split
+from tests.fakes import use_generation_success_emit
 
 
 @pytest.fixture
@@ -209,21 +210,18 @@ class TestApplyGridSplit:
         ):
             await apply_grid_split("test-project", grid)
 
-    async def test_split_emits_grid_split_event(self, project_with_script, grid_with_image):
+    async def test_split_emits_grid_split_event(self, project_with_script, grid_with_image, monkeypatch):
         grid = grid_with_image
         _register_grid(project_with_script, grid)
         pm = _mock_pm(project_with_script)
-        with (
-            patch("server.services.grid.grid_split.get_project_manager", return_value=pm),
-            patch(
-                "server.services.tasks.generation_tasks.emit_generation_success_batch", return_value={"a": 1}
-            ) as emit,
-        ):
+        patch_pm = patch("server.services.grid.grid_split.get_project_manager", return_value=pm)
+        emit_calls = use_generation_success_emit(monkeypatch, returns={"a": 1})
+        with patch_pm:
             result = await apply_grid_split("test-project", grid)
 
-        emit.assert_called_once()
-        assert emit.call_args.kwargs["task_type"] == "grid_split"
-        assert emit.call_args.kwargs["resource_id"] == grid.id
+        assert len(emit_calls) == 1
+        assert emit_calls[0]["task_type"] == "grid_split"
+        assert emit_calls[0]["resource_id"] == grid.id
         assert result.asset_fingerprints == {"a": 1}
 
     async def test_registration_failure_restores_every_split_sidecar(self, project_with_script, grid_with_image):

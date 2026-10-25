@@ -23,7 +23,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import grids
 from server.routers import versions as versions_router
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import use_project_manager
+from tests.fakes import use_generation_success_emit, use_project_manager
 
 
 def _narration_script(count: int = 4):
@@ -1305,10 +1305,7 @@ def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path)
     grid.split_at = "2026-01-01T00:00:00+00:00"
     GridManager(tmp_path).save(grid)
 
-    monkeypatch.setattr(
-        "server.services.tasks.generation_tasks.emit_generation_success_batch",
-        lambda **kw: {f"grids/{grid.id}.png": 123},
-    )
+    use_generation_success_emit(monkeypatch, returns={f"grids/{grid.id}.png": 123})
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
     with client:
         resp = client.post(
@@ -1352,12 +1349,8 @@ def test_upload_grid_image_marks_stage_and_emit_as_webui(monkeypatch, tmp_path):
         sources.append(("stage", get_project_change_source()))
         return original_stage(*args, **kwargs)
 
-    def _emit(**_kwargs):
-        sources.append(("emit", get_project_change_source()))
-        return {}
-
     monkeypatch.setattr(grids, "stage_uploaded_bytes", _stage)
-    monkeypatch.setattr("server.services.tasks.generation_tasks.emit_generation_success_batch", _emit)
+    use_generation_success_emit(monkeypatch, on_emit=lambda: sources.append(("emit", get_project_change_source())))
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
 
     with client:
@@ -1411,7 +1404,7 @@ def test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim(monkeyp
     GridManager(project_path).save(grid)
 
     use_project_manager(monkeypatch, pm)
-    monkeypatch.setattr("server.services.tasks.generation_tasks.emit_generation_success_batch", lambda **_kwargs: {})
+    use_generation_success_emit(monkeypatch)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(grids.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
@@ -1456,10 +1449,7 @@ def test_upload_grid_image_refreshes_frozen_aspect_ratio(monkeypatch, tmp_path):
     grid.video_aspect_ratio = "16:9"
     GridManager(tmp_path).save(grid)
 
-    monkeypatch.setattr(
-        "server.services.tasks.generation_tasks.emit_generation_success_batch",
-        lambda **kw: {},
-    )
+    use_generation_success_emit(monkeypatch)
     # _FakePMRegenerate 的项目比例为 9:16，与记录冻结的 16:9 不同
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
     with client:
@@ -1509,10 +1499,7 @@ def test_upload_grid_image_registration_failure_restores_file_version_and_record
 def test_upload_grid_image_does_not_downscale(monkeypatch, tmp_path):
     """联合图上传不缩放：超过分镜图 2048 上限的大图原尺寸保留（4K 联合图切格不失真）。"""
     grid = _make_completed_grid(tmp_path)
-    monkeypatch.setattr(
-        "server.services.tasks.generation_tasks.emit_generation_success_batch",
-        lambda **kw: {},
-    )
+    use_generation_success_emit(monkeypatch)
     client = _client(monkeypatch, get_project_manager=lambda: _FakePMRegenerate(tmp_path))
     with client:
         resp = client.post(

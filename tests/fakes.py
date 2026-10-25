@@ -1105,6 +1105,29 @@ def use_generation_context(monkeypatch, resolve: Callable[..., Any]) -> None:
     monkeypatch.setattr("server.services.tasks.reference_video_tasks.resolve_generation_context", resolve)
 
 
+def use_generation_success_emit(
+    monkeypatch, *, returns: dict[str, int] | None = None, on_emit: Callable[[], None] | None = None
+) -> list[dict[str, Any]]:
+    """生成任务收尾的成功事件发都换成记录调用参数的替身；返回收集列表供用例断言。
+
+    用例只关心任务收尾的编排（如字幕对齐预热挂钩）与指纹透传（grids 上传 / 宫格切分把
+    返回值放进结果），不关心事件内容——事件本身由 ``test_emit_generation_success_batch``
+    对真实函数测试。``returns`` 是替身回给调用方的指纹字典，缺省空字典；``on_emit`` 在
+    替身被调用的当下执行（如记录事件发出时所处的变更源）。
+    """
+    calls: list[dict[str, Any]] = []
+
+    def _emit(**kwargs: Any) -> dict[str, int]:
+        calls.append(kwargs)
+        if on_emit is not None:
+            on_emit()
+        return dict(returns) if returns is not None else {}
+
+    monkeypatch.setattr("server.services.tasks.generation_tasks.emit_generation_success_batch", _emit)
+    monkeypatch.setattr("server.services.tasks.resume_executor.emit_generation_success_batch", _emit)
+    return calls
+
+
 def use_video_thumbnail_extractor(monkeypatch, extract: Callable[..., Any]) -> None:
     """视频任务与参考视频任务的缩略图抽帧都换成 *extract*，用例不调真实 ffmpeg。"""
     monkeypatch.setattr("server.services.tasks.generation_tasks.extract_video_thumbnail", extract)

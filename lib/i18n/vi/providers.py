@@ -13,6 +13,7 @@ MESSAGES: dict[str, str] = {
     "provider_name_minimax": "MiniMax",
     "provider_name_kling": "Kling",
     "provider_name_agnes": "Agnes",
+    "provider_name_coolhs": "Wanwan Studio",
     # 失败文案里目录查不到的供应商（已被删除）的泛称
     "deleted_provider_display_name": "Nhà cung cấp đã bị xóa",
     "deleted_agent_provider_display_name": "Nhà cung cấp Agent đã bị xóa",

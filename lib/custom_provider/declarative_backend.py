@@ -92,6 +92,14 @@ def _url_without_auth_query(rendered: RenderedRequest) -> str:
 _BASE64_LOG_THRESHOLD = 256
 _BASE64_PATTERN = re.compile(r"[A-Za-z0-9+/=\r\n]+")
 
+#: 参考音频的 data URL MIME 显式表。不交给 :func:`mimetypes.guess_type`：它对 ``.wav``
+#: 的答案随平台漂移（Linux 给 audio/x-wav、Windows 注册表给 audio/wav），parity 断言因此
+#: 跨平台不稳。口径对齐 ark / dashscope 的 ``_REFERENCE_AUDIO_MIME_TYPES``。
+AUDIO_MIME_TYPES: dict[str, str] = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+}
+
 
 def _asset_payloads(context: Mapping[str, object]) -> frozenset[str]:
     """一次渲染编码出的素材值。日志据此按来源摘素材，不靠体积猜——一张 1×1 的 PNG 编出来
@@ -467,8 +475,12 @@ class DeclarativeJobEngine[StateT: JobState]:
     def _asset(path: Path | None) -> AssetData | None:
         if path is None:
             return None
+        # 音频走显式表：``mimetypes.guess_type`` 对 ``.wav`` 的答案随平台漂移（Linux 内置表
+        # 给 audio/x-wav，Windows 注册表给 audio/wav），parity 断言会因此跨平台不稳。口径
+        # 对齐 ark / dashscope 的 ``_REFERENCE_AUDIO_MIME_TYPES``。
         mime = (
             IMAGE_MIME_TYPES.get(path.suffix.lower())
+            or AUDIO_MIME_TYPES.get(path.suffix.lower())
             or mimetypes.guess_type(path.name)[0]
             or "application/octet-stream"
         )

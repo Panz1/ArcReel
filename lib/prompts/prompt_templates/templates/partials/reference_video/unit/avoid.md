@@ -1,1 +1,1 @@
-{{ prefix }} {{ partial("shared/video_avoid") }}{% if co_present_characters %}、外形着装完全一致的分身或双胞胎{% endif %}
+{{ prefix }}{% if prefix %} {% endif %}{{ partial("shared/video_avoid") }}{% if co_present_characters %}、外形着装完全一致的分身或双胞胎{% endif %}

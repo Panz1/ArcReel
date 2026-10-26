@@ -6,21 +6,26 @@
 
 三段分工：
 
-- **第一段**：``<X>@图片N`` 简式绑定（图片编号 = 随请求发出的参考图顺序）+ 声音声明集中
-  声明区（``<X>的台词音色参考 @音频N，只取音色、语速与情绪，台词以正文为准，声音特征：…``）。听得到声音的 A/B 类均注入声音特征，
-  两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入。多人同框时追加「固定空间关系」与
-  「主体锁定」两条声明，分别锁站位 / 朝向与强化脸 / 发型 / 体型一致（万相 3.0 官方写法，前缀走方言）。
-- **第二段**：单元正文 + 角色台词记号（``<X>说 {台词}``）；无归属旁白（裸 ``{台词}``）
-  不下发视频模型，由 TTS / 后期配音承担
-- **第三段**：共享风格块 + ``Avoid`` 行（视频负向提示词，本路径的反向约束全部由它承担）；
+- **第一段**：主体绑定（万相 ``图N是X`` / Seedance ``图片 N 是 X`` / 通用 ``<X>@图片N``，图片编号
+  = 随请求发出的参考图顺序）+ 同角色形态声明 + 主体锁定回述（仅官方有此写法的方言）+ 声音声明
+  （Seedance 有参考图时用官方 ``图片 N 使用音频 N 音色`` 句式，否则通用主干）。听得到声音的
+  A/B 类均注入声音特征，两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入。有声且有
+  台词的单元注入方言的口型同步指令（万相 ``口型同步``、Seedance ``逐字同步口型``）。多人同框时
+  追加「固定空间关系」声明锁站位 / 朝向。Seedance 另在声明区末补正文式负向（官方 BGM badcase
+  的「首尾各写一遍」），见 ``negative_head``。
+- **第二段**：单元正文 + 角色台词记号（句式随方言：万相 ``X说："…"``、Seedance ``台词 (X): "…"``、
+  通用 ``<X>说 {台词}``）；无归属旁白（裸 ``{台词}``）不下发视频模型，由 TTS / 后期配音承担。
+  主体记号随方言：万相 / Seedance 为官方裸名，通用方言保留尖括号 ``<X>`` 存量形态
+- **第三段**：共享风格块 + 负向约束行（万相 ``Negative:`` 前缀、Seedance 正文句式、通用 ``Avoid:``）；
   画面里有两个及以上不同角色时追加分身或双胞胎排除项。带商品参考图时其后再接商品高保真声明
 
 所有创作类型的输入均是 unit 正文这一段自由文本，正文只写第二段；主体绑定与参考图顺序都经
 ``@[X]`` mention 解析派生（:func:`render_unit_prompt`）。正文可含分镜时间码（如
 ``（0—4秒）`` / ``（00:00-00:03）``，多见于分镜式 unit），这类时间码**不做绝对秒数的时长控制**
 ——总时长仍由请求字段 ``duration`` 承担——但会被 :func:`_normalize_timecodes` 归一为当前视频
-模型认得的格式（万相 3.0 用 ``分段N[起-止秒]``，其余模型只留镜头序号），以补上官方要求的
-「镜头序号 + 起止秒」结构，让时间段真正对得上。
+模型认得的格式（万相 3.0 用 ``分段N[起-止秒]``，Seedance 2.5 响应整数秒用 ``N-M 秒``，其余模型
+只留镜头序号），以补上官方要求的「镜头序号 + 起止秒」结构，让时间段真正对得上；段长与衔接
+异常（单段超 5 秒、段间跳段 / 重叠）由 :func:`_timecode_guard_warnings` 出 warning。
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from __future__ import annotations
 import re
 from collections.abc import Collection
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +43,8 @@ from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.script.reference_video.prompt_dialect import GENERIC, PromptDialect
 from lib.script.reference_video.script_preview import (
+    WARN_TIMECODE_GAP,
+    WARN_TIMECODE_SEGMENT_TOO_LONG,
     WARN_UNREGISTERED_MENTION,
     derive_utterances,
     derive_voice_bindings,
@@ -128,6 +136,7 @@ def render_unit_prompt(
     """
     mentions = extract_mentions(text)
     utterances, warnings = derive_utterances(text)
+    warnings = _timecode_guard_warnings(text) + warnings
 
     # ``references`` 是入参（上游持久化的派生结果），其名字以哪种编码形式落盘不可控；正文一侧
     # 出自解析器、已归一。两侧同形，主体记号与图号才对得上——不归一时该角色的绑定行会缺位、
@@ -157,6 +166,9 @@ def render_unit_prompt(
 
     request_character_forms = _character_forms_by_entity(references, catalog)
     co_present_characters = list(_character_forms_by_entity(registered, catalog))
+    # 口型同步只对「模型产音且真的有人开口」的单元有意义：无声路径不注入，纯画外音 /
+    # 无台词单元的嘴不该对着不存在的语音开合。
+    has_dialogue = any(utterance.kind == "dialogue" for utterance in utterances)
     prompt = builtin_templates.render(
         "reference_video/unit",
         declarations=_render_segment_one(
@@ -169,6 +181,7 @@ def render_unit_prompt(
             dialect,
             co_present_characters,
             character_image_no,
+            has_dialogue=has_dialogue,
         ),
         body=_render_segment_two(text, subjects, characters, catalog, dialect),
         style=normalize_style_value(project.get("style")),
@@ -176,6 +189,7 @@ def render_unit_prompt(
         co_present_characters=co_present_characters if len(co_present_characters) >= 2 else [],
         products=list(dict.fromkeys(ref.name for ref in references if ref.type == "product" and ref.name)),
         negative_prefix=dialect.negative_prefix,
+        negative_head=dialect.negative_head,
     )
     return RenderedUnitPrompt(
         prompt=prompt,
@@ -215,10 +229,15 @@ def _render_voice_declarations(
     characters: dict,
     settings: VoiceRenderSettings,
     dialect: PromptDialect,
+    character_image_no: dict[str, int] | None = None,
 ) -> list[str]:
-    """声音声明行：``<X>的台词音色参考 @音频N，只取音色、语速与情绪，台词以正文为准，声音特征：…``。剧集与 ad 路径共用——两者的
-    主体绑定行统一使用 mention 派生的 ``ReferenceResource``；声音声明只认「已登记的
-    dialogue speaker」，与主体绑定行解耦，可整段复用。
+    """声音声明行，句式主干走方言 ``voice_line``；「声音特征：…」尾缀三方言共用。
+
+    剧集与 ad 路径共用——两者的主体绑定行统一使用 mention 派生的 ``ReferenceResource``；
+    声音声明只认「已登记的 dialogue speaker」，与主体绑定行解耦，可整段复用。
+
+    Seedance 官方音色句式是 ``图片 N 使用音频 N 音色``（需要图号）：该 speaker 有参考图且
+    方言提供 ``voice_line_with_image`` 时用它；纯画外角色（无图号）与其余方言退回通用主干。
 
     两条无声路径（``settings.is_silent``：模型不产音的 C 类、本集关闭音频）都不注入声音声明；
     听得到声音的 A/B 类均注入声音特征——官方建议音色还原不佳时补描述。台词渲染不受影响，
@@ -232,14 +251,30 @@ def _render_voice_declarations(
     lines: list[str] = []
     for name in speakers:
         parts: list[str] = []
+        # 音色部分自带主体归属（voice_line 以主体起头 / Seedance 以图号起头）；只有声音特征、
+        # 没有音色部分的行需要补「<X>的」前缀，否则特征不知道说的是谁。
+        own_lead = False
         if name in audio_no:
-            parts.append(f"台词音色参考 {dialect.audio(audio_no[name])}，只取音色、语速与情绪，台词以正文为准")
+            image_no = (character_image_no or {}).get(name)
+            if image_no and dialect.voice_line_with_image:
+                parts.append(
+                    dialect.voice_line_with_image.format(
+                        image=dialect.image(image_no), audio=dialect.audio(audio_no[name])
+                    )
+                )
+                own_lead = True
+            else:
+                parts.append(dialect.voice_line.format(name=dialect.subject(name), audio=dialect.audio(audio_no[name])))
+                own_lead = True
         char_data = characters.get(name)
         voice_style = str((char_data.get("voice_style") if isinstance(char_data, dict) else None) or "").strip()
         if voice_style:
             parts.append(f"声音特征：{voice_style}")
         if parts:
-            lines.append(f"<{name}>的" + "，".join(parts) + "。")
+            line = "，".join(parts)
+            if not own_lead:
+                line = f"{dialect.subject(name)}的" + line
+            lines.append(line + "。")
     return lines
 
 
@@ -269,8 +304,10 @@ def _render_segment_one(
     dialect: PromptDialect,
     co_present_characters: Collection[str] = (),
     character_image_no: dict[str, int] | None = None,
+    *,
+    has_dialogue: bool = False,
 ) -> str:
-    """主体绑定 + 声音声明。
+    """主体绑定 + 声音声明 + 口型指令。
 
     官方三段论第一段即参考来源声明区（人脸 / 运镜 / 音色参考同位），故音色参考与声音特征
     集中于此，台词只留统一句式。声明遍历「有台词的已登记角色」而非参考图列表：纯画外角色
@@ -278,7 +315,7 @@ def _render_segment_one(
 
     ``labels`` 是 mention 派生的主体记号文本，逐项对应随请求发出的参考图。图号按位置
     直接编号（非名字查表）；空 label 占位不产出绑定行，编号照样前进，以免后续图号与请求
-    顺序错位。
+    顺序错位。绑定句式走方言（万相 ``图N是X``、Seedance ``图片 N 是 X``、通用 ``<X>@图片N``）。
 
     ``character_forms`` 是 :func:`_character_forms_by_entity` 的分组，用来声明同一角色的
     多个形态；它按资产条目分组，与按位置编号的 ``labels`` 不同源。
@@ -286,15 +323,18 @@ def _render_segment_one(
     返回 ``reference_video/unit`` 模版的 ``declarations`` 槽位值。
     """
     lines: list[str] = []
-    bindings = "、".join(f"<{label}>{dialect.image(i)}" for i, label in enumerate(labels, start=1) if label)
+    bindings = "、".join(dialect.bind(label, i) for i, label in enumerate(labels, start=1) if label)
     if bindings:
         lines.append(bindings + "。")
-    lines.extend(_render_form_declarations(character_forms))
-    # 多个角色参考图同现时回述「主体锁定」，强化脸 / 发型 / 体型一致（万相 3.0 官方写法）。
+    lines.extend(_render_form_declarations(character_forms, dialect))
+    # 多个角色参考图同现时回述「主体锁定」，强化脸 / 发型 / 体型一致（官方有此写法的方言才产出）。
     lines.extend(_render_subject_lock(character_image_no or {}, dialect))
-    lines.extend(_render_voice_declarations(speakers, audio_no, characters, settings, dialect))
+    lines.extend(_render_voice_declarations(speakers, audio_no, characters, settings, dialect, character_image_no))
+    # 口型指令跟在声音声明之后：模型产音且有人开口时，让嘴对上即将生成的语音。
+    if not settings.is_silent and has_dialogue and dialect.lip_sync:
+        lines.append(dialect.lip_sync + "。")
     # 多人同框时把站位 / 朝向约束显式锚定一次，避免角色位置乱跑（万相 3.0 官方写法）。
-    lines.extend(_render_spatial_relations(co_present_characters))
+    lines.extend(_render_spatial_relations(co_present_characters, dialect))
     return "\n".join(lines)
 
 
@@ -317,7 +357,7 @@ def _character_forms_by_entity(references: list[ReferenceResource], catalog: Ref
     return grouped
 
 
-def _render_form_declarations(character_forms: dict[str, list[str]]) -> list[str]:
+def _render_form_declarations(character_forms: dict[str, list[str]], dialect: PromptDialect) -> list[str]:
     """同一角色的多个形态同现时，声明它们是同一个人的不同外观。
 
     角色的本体与衍生是各自独立的引用名、各带一张资产图（见 ``docs/adr/0072``），同现不设限。
@@ -328,7 +368,7 @@ def _render_form_declarations(character_forms: dict[str, list[str]]) -> list[str
     for forms in character_forms.values():
         if len(forms) < 2:
             continue
-        marks = [f"<{form}>" for form in forms]
+        marks = [dialect.subject(form) for form in forms]
         lines.append("、".join(marks[:-1]) + f"与{marks[-1]}是同一角色的不同形态，各自按对应参考图呈现。")
     return lines
 
@@ -377,17 +417,19 @@ def _render_segment_two(
     lines: list[str] = []
     # 整段正文共用一个时间码序号计数器：分段 N 跨行连续递增，不每行各从 1 起。
     timecode_counter: dict[str, int] = {"n": 0}
+    # 主体记号形态随方言（万相 / Seedance 官方裸名，通用方言保留尖括号存量形态）。
+    subject_mark = dialect.subject
     for raw in text.splitlines():
         pieces: list[str | None] = []
         for part in split_speech_line(raw):
             if isinstance(part, str):
-                pieces.append(render_mentions_as_subjects(part, subjects))
+                pieces.append(render_mentions_as_subjects(part, subjects, subject_mark))
             elif not part.speaker:
                 pieces.append(None)
             elif part.speaker in characters:
                 pieces.append(dialect.say(_speaker_subject(part, catalog), part.text))
             else:
-                pieces.append(render_mentions_as_subjects(part.raw, subjects))
+                pieces.append(render_mentions_as_subjects(part.raw, subjects, subject_mark))
         line = _join_line_pieces(pieces)
         # 正文可能带分镜时间码（分镜式 unit），统一成当前模型认得的格式，补上官方要求的
         # 「镜头序号 + 起止秒」结构，让时间段真正对得上。
@@ -399,14 +441,14 @@ def _render_segment_two(
 
 
 def _normalized_timecode_re(dialect: PromptDialect) -> re.Pattern[str]:
-    """已归一化的时间码记号正则：万相是 ``分段N[起-止秒]：``，其余方言回落 ``镜头N：``。
+    """已归一化的时间码记号正则：万相是 ``分段N[起-止秒]：``，其余方言回落 ``镜头N：`` 或秒区间。
 
     万相只认 ``分段N[…]`` 形态，作者随手写的 ``镜头N：`` 不会被误判成转场锚点；其余方言的
     ``镜头N：`` 与作者写法同形，但转场指令对非万相回落空串，不注入，故无副作用。
     """
     if dialect.name == "wan3":
         return re.compile(r"分段\d+\[[^\]]*\]\uff1a")
-    return re.compile(r"镜头\d+\uff1a")
+    return re.compile(r"(?:镜头\d+|\d+-\d+ 秒)\uff1a")
 
 
 def _inject_transitions(body: str, dialect: PromptDialect) -> str:
@@ -485,6 +527,7 @@ def _join_line_pieces(pieces: list[str | None]) -> str:
 _TIMECODE_SECONDS_RE = re.compile(r"[（(]\s*(\d+)\s*[—\-]\s*(\d+)\s*秒\s*[）)](\uff1a:)?")
 _TIMECODE_CLOCK_RE = re.compile(r"[（(]\s*(\d+)\s*:\s*(\d+)\s*[—\-]\s*(\d+)\s*:\s*(\d+)\s*[）)](\uff1a:)?")
 
+
 def _normalize_timecodes(text: str, dialect: PromptDialect, counter: dict[str, int] | None = None) -> str:
     """把正文里的分镜时间码统一成当前模型认得的格式。
 
@@ -515,16 +558,43 @@ def _normalize_timecodes(text: str, dialect: PromptDialect, counter: dict[str, i
     return text
 
 
+def _timecode_guard_warnings(text: str) -> list[dict[str, Any]]:
+    """对正文里的原始分镜时间码做两道守护：单段超 5 秒、段间跳段 / 重叠。
+
+    万相 3.0 官方要求每段 2-5 秒、首尾相接不跳段不重叠；Seedance 2.5 同样要求时间轴连续
+    （官方 badcase：跳段会让模型自由填补节奏）。这里只出 warning 不改写——时间码是剧本
+    LLM / 作者写下的内容，越权重排会掩盖上游问题；原始时间码在归一前都有秒数，故守护
+    不依赖方言（Seedance / 通用方言归一后丢秒，但守护发生在归一前的原文上）。
+
+    单段短于 2 秒不在此列：碎拍靠 prompt_authoring 的节拍指导约束，warning 会与「每拍
+    2-5 秒」的指导重复且高频（时间码相邻一对就报）。
+    """
+    spans = [(int(match.group(1)), int(match.group(2))) for match in _TIMECODE_SECONDS_RE.finditer(text)]
+    spans += [
+        (int(match.group(1)) * 60 + int(match.group(2)), int(match.group(3)) * 60 + int(match.group(4)))
+        for match in _TIMECODE_CLOCK_RE.finditer(text)
+    ]
+    warnings: list[dict[str, Any]] = []
+    for start, end in spans:
+        if end - start > 5:
+            warnings.append({"key": WARN_TIMECODE_SEGMENT_TOO_LONG, "params": {"start": start, "end": end}})
+    for (_, prev_end), (start, _) in pairwise(spans):
+        if start != prev_end:
+            warnings.append({"key": WARN_TIMECODE_GAP, "params": {"prev_end": prev_end, "start": start}})
+    return warnings
+
+
 def _render_subject_lock(character_image_no: dict[str, int], dialect: PromptDialect) -> list[str]:
     """两个及以上角色参考图同现时，用官方「主体锁定」回述把身份锚定一次，强化脸 / 发型 / 体型一致。
 
-    只列随请求发出的角色参考图（``<name>图N``），与第一段绑定行同口径；单人 / 无角色参考图时不产出，
-    避免无谓约束挤占配额。换模型时前缀走 :meth:`PromptDialect.subject_lock_prefix`，无需改渲染层。
+    只列随请求发出的角色参考图（主体紧邻图号，如万相 ``张三图1``），与第一段绑定行同口径；
+    单人 / 无角色参考图时不产出，避免无谓约束挤占配额。方言的 ``subject_lock_prefix`` 为空
+    （官方无此写法，如 Seedance——其绑定清单行已承担同等职责）时整行不产出。
     """
-    prefix = dialect.subject_lock_prefix()
+    prefix = dialect.subject_lock_prefix
     if not prefix or len(character_image_no) < 2:
         return []
-    marks = "、".join(f"<{name}>图{n}" for name, n in character_image_no.items())
+    marks = "、".join(f"{dialect.subject(name)}{dialect.image(n)}" for name, n in character_image_no.items())
     return [f"{prefix}{marks}。"]
 
 
@@ -545,7 +615,7 @@ def _append_transition(line: str, dialect: PromptDialect) -> str:
     return line + token + "。"
 
 
-def _render_spatial_relations(co_present_characters: Collection[str]) -> list[str]:
+def _render_spatial_relations(co_present_characters: Collection[str], dialect: PromptDialect) -> list[str]:
     """两个及以上角色同框时，用「固定空间关系」把正文里的站位 / 朝向约束显式锚定一次。
 
     万相 3.0 官方用这种声明锁定多人站位（如「叶星辰在左侧，女内门弟子在右侧」）；其余模型
@@ -556,7 +626,7 @@ def _render_spatial_relations(co_present_characters: Collection[str]) -> list[st
     """
     if len(co_present_characters) < 2:
         return []
-    marks = "、".join(f"<{name}>" for name in co_present_characters)
+    marks = "、".join(dialect.subject(name) for name in co_present_characters)
     return [
         f"固定空间关系：{marks} 的站位、朝向与相互位置以正文「构图」「画面内容」描述为准，"
         f"须在整个片段中保持一致；仅在正文明确写明的位移动作中移动，不得凭空换位、不得瞬移、不得轴线错乱。"

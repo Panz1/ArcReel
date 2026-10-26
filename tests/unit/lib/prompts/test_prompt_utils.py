@@ -20,8 +20,13 @@ from lib.prompts.prompt_utils import (
     yaml_section,
 )
 
-# 与 shared/video_avoid.md 的共享排除项声明保持一致：扩展到覆盖位置/空间/形变类负向项。
-SHARED_VIDEO_AVOID = "BGM、文字字幕、水印、Logo、不要人物无逻辑乱跑、不要空间混乱、不要轴线错乱、不要肢体扭曲、不要人脸变形、不要缩放漂移"
+# 与 shared/video_avoid.md 的共享排除项声明保持一致：每项统一「不要」前缀，BGM 按官方
+# badcase 教训穷举同义词，并补位置/空间/形变/身份类负向项。
+SHARED_VIDEO_AVOID = (
+    "不要BGM、不要背景音乐、不要配乐、不要音乐、不要旋律、不要文字字幕、不要水印、不要Logo、"
+    "不要人物无逻辑乱跑、不要空间混乱、不要轴线错乱、不要肢体扭曲、不要人脸变形、"
+    "不要多余手指、不要换脸、不要额外人声旁白、不要缩放漂移"
+)
 
 
 class TestPromptUtils:

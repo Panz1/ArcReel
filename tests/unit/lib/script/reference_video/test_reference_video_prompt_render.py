@@ -746,15 +746,15 @@ def test_timecode_normalization_for_wan_adds_segment_prefix_and_brackets():
     assert "—" not in rendered.prompt
 
 
-def test_timecode_normalization_for_seedance_drops_seconds():
-    """Seedance 对秒级硬卡支持不稳，官方建议用镜头序号；故归一后只剩 镜头N：，不写秒数。"""
+def test_timecode_normalization_for_seedance_keeps_integer_seconds():
+    """Seedance 2.5 官方明文响应整数秒时间戳（2.0 忽略秒数按镜头序号理解），归一保留秒数。"""
     text = "画面内容：（0—4秒）：@[张三] 弯腰。（4—9秒）：他直起身。"
     rendered = render_unit_prompt(text, _project(), _refs(("character", "张三")), _SOFT, dialect=SEEDANCE)
 
-    assert "镜头1：" in rendered.prompt
-    assert "镜头2：" in rendered.prompt
-    assert "[0-4秒]" not in rendered.prompt
+    assert "0-4 秒：" in rendered.prompt
+    assert "4-9 秒：" in rendered.prompt
     assert "（0—4秒）" not in rendered.prompt
+    assert "—" not in rendered.prompt
 
 
 def test_timecode_clock_format_converted_to_seconds_for_wan():
@@ -811,7 +811,7 @@ def test_subject_lock_recalls_bound_characters_with_image_numbers():
         _SOFT,
         dialect=WAN30,
     )
-    assert "主体锁定：<张三>图1、<李四>图2。" in rendered.prompt
+    assert "主体锁定：张三图1、李四图2。" in rendered.prompt
 
 
 def test_subject_lock_only_when_two_or_more_character_images():
@@ -843,7 +843,7 @@ def test_subject_lock_lists_each_referenced_character_form():
         _SOFT,
         dialect=WAN30,
     )
-    assert "主体锁定：<张三>图1、<张三/劲装>图2。" in rendered.prompt
+    assert "主体锁定：张三图1、张三/劲装图2。" in rendered.prompt
 
 
 def test_transition_injected_between_wan_segments():
@@ -852,8 +852,8 @@ def test_transition_injected_between_wan_segments():
     rendered = render_unit_prompt(text, _project(), _refs(("character", "张三")), _SOFT, dialect=WAN30)
 
     assert "硬切转场" in rendered.prompt
-    # 段末转场接在上一镜头内容末句
-    assert "分段1[0-4秒]：<张三> 弯腰捡起树枝，硬切转场。" in rendered.prompt
+    # 段末转场接在上一镜头内容末句（万相方言正文为官方裸名，无尖括号记号）
+    assert "分段1[0-4秒]：张三 弯腰捡起树枝，硬切转场。" in rendered.prompt
     # 最后一个镜头后面不再补转场
     assert "分段2[4-9秒]：他直起身，硬切转场。" not in rendered.prompt
     assert "分段2[4-9秒]：他直起身。" in rendered.prompt
@@ -887,6 +887,133 @@ def test_transition_placed_at_end_of_previous_line_when_timecodes_split_across_l
 
     assert "硬切转场" in rendered.prompt
     # 转场在上一行末
-    assert "分段1[0-4秒]：<张三> 弯腰，硬切转场。" in rendered.prompt
+    assert "分段1[0-4秒]：张三 弯腰，硬切转场。" in rendered.prompt
     # 下一个时间码另起一行，且其后不再补转场
     assert "分段2[4-9秒]：他直起身。" in rendered.prompt
+
+
+_NATIVE = VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, audio_ready={"张三"})
+
+
+def test_lip_sync_injected_for_native_dialects_with_dialogue():
+    """有声且有台词的单元注入方言口型指令：万相「口型同步」、Seedance「逐字同步口型」。"""
+    wan = render_unit_prompt(
+        "@[张三] 推门。@[张三]{我来了。}",
+        _project(),
+        _refs(("character", "张三")),
+        _NATIVE,
+        dialect=WAN30,
+    )
+    assert "口型同步。" in wan.prompt
+
+    seedance = render_unit_prompt(
+        "@[张三] 推门。@[张三]{我来了。}",
+        _project(),
+        _refs(("character", "张三")),
+        _NATIVE,
+        dialect=SEEDANCE,
+    )
+    assert "逐字同步口型。" in seedance.prompt
+
+
+def test_lip_sync_skipped_for_silent_or_dialogue_free_units():
+    """无声路径与纯画外 / 无台词单元不注口型：嘴不该对着不存在的语音开合。"""
+    silent = render_unit_prompt(
+        "@[张三] 推门。@[张三]{我来了。}",
+        _project(),
+        _refs(("character", "张三")),
+        VoiceRenderSettings(voice_consistency="none"),
+        dialect=WAN30,
+    )
+    assert "口型同步" not in silent.prompt
+
+    no_dialogue = render_unit_prompt(
+        "@[张三] 推门，{夜风灌进来}，他按住门框。",
+        _project(),
+        _refs(("character", "张三")),
+        _NATIVE,
+        dialect=WAN30,
+    )
+    assert "口型同步" not in no_dialogue.prompt
+
+    generic = render_unit_prompt(
+        "@[张三] 推门。@[张三]{我来了。}",
+        _project(),
+        _refs(("character", "张三")),
+        _NATIVE,
+    )
+    assert "口型同步" not in generic.prompt
+
+
+def test_seedance_voice_line_uses_official_image_binding():
+    """Seedance 官方音色句式「图片 N 使用音频 N 音色」：speaker 有参考图时按图号绑定。"""
+    rendered = render_unit_prompt(
+        "@[张三] 推门。@[张三]{我来了。}",
+        _project(),
+        _refs(("character", "张三")),
+        _NATIVE,
+        dialect=SEEDANCE,
+    )
+    assert "图片 1 使用音频 1 音色，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。" in rendered.prompt
+
+
+def test_seedance_voice_line_degrades_to_generic_lead_without_reference_image():
+    """纯画外 speaker（台词位-only、无参考图）没有图号可写，退回通用主干（裸名起头）。"""
+    rendered = render_unit_prompt(
+        "@[张三] 推门。@[李四]{谁在那儿？}",
+        _project(),
+        _refs(("character", "张三")),
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, audio_ready={"张三", "李四"}),
+        dialect=SEEDANCE,
+    )
+    assert "李四的台词音色参考 音频 1，只取音色、语速与情绪，台词以正文为准" in rendered.prompt
+
+
+def test_timecode_guard_warns_on_overlong_segment():
+    """单段超 5 秒出 warning：动作塞得过满或切拍不足，视频节奏会与时间码对不上。"""
+    rendered = render_unit_prompt(
+        "画面内容：（0—8秒）：@[张三] 弯腰。（8—15秒）：他直起身。",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+    assert {"key": "ref_warn_timecode_segment_too_long", "params": {"start": 0, "end": 8}} in rendered.warnings
+    assert {"key": "ref_warn_timecode_segment_too_long", "params": {"start": 8, "end": 15}} in rendered.warnings
+
+
+def test_timecode_guard_warns_on_gap():
+    """段间跳段 / 重叠出 warning：缺口会被模型自行填补，时间段就对不上。"""
+    rendered = render_unit_prompt(
+        "画面内容：（0—3秒）：@[张三] 弯腰。（5—8秒）：他直起身。",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+    assert {"key": "ref_warn_timecode_gap", "params": {"prev_end": 3, "start": 5}} in rendered.warnings
+
+
+def test_timecode_guard_silent_for_contiguous_short_segments():
+    """每段 ≤5 秒且首尾相接的正文不出时间码 warning。"""
+    rendered = render_unit_prompt(
+        "画面内容：（0—3秒）：@[张三] 弯腰。（3—7秒）：他直起身。（7—10秒）：他走远。",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+    )
+    assert all(
+        w["key"] not in ("ref_warn_timecode_segment_too_long", "ref_warn_timecode_gap") for w in rendered.warnings
+    )
+
+
+def test_seedance_negative_head_precedes_body():
+    """Seedance 的正文式负向首行（首尾双写的「首」）在声明区之后、正文之前。"""
+    rendered = render_unit_prompt(
+        "@[张三] 推门。@[张三]{我来了。}",
+        _project(),
+        _refs(("character", "张三")),
+        _SOFT,
+        dialect=SEEDANCE,
+    )
+    head = rendered.prompt.index("不要bgm、不要背景音乐")
+    body = rendered.prompt.index("张三 推门")
+    assert head < body

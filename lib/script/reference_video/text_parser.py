@@ -442,17 +442,27 @@ def render_mentions(text: str, render: Callable[[str], str]) -> str:
     return "".join(parts)
 
 
-def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
+def render_mentions_as_subjects(
+    text: str,
+    names: Collection[str],
+    subject_mark: Callable[[str], str] | None = None,
+) -> str:
     """把 prompt 中的 ``@[X]`` / ``@X`` 替换为三段论的主体记号 ``<X>``。
 
-    ``names`` 是资产表里已登记的名字——``<X>`` 是画面主体记号、不指向参考图编号，故不随
+    ``names`` 是资产表里已登记的名字——主体记号是画面主体标记、不指向参考图编号，故不随
     能力上限裁剪收窄。不在其中的 mention 原样保留、从不删字（据此「拼接文本去空白后为空」
     等价于「渲染后为空」，空提示词校验可在入队侧无损完成）。
+
+    ``subject_mark`` 定制记号形态，收到的是归一后的名字；缺省 ``<X>``（GENERIC 方言的
+    存量形态）。万相 / Seedance 的官方正文用裸名，渲染层传
+    :meth:`lib.script.reference_video.prompt_dialect.PromptDialect.subject` 即可，解析 /
+    预览等其它调用点不传则保持原形态。
 
     正文与 ``names`` 都归一到比对坐标系后再判成员：不归一时，NFD 落盘的 ``@[名称]`` 与 NFC
     登记的同一个名字判不相等，该 mention 会被当成未登记而原样保留，``@[名称]`` 这个引用语法
     记号就直接漏进了供应商请求。
     """
+    mark = subject_mark if subject_mark is not None else (lambda name: f"<{name}>")
     normalized_names = {asset_name_comparison_key(name) for name in names}
     text = _normalize_source(text)
     parts: list[str] = []
@@ -460,7 +470,7 @@ def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
     for start, end, name in _iter_mentions(text):
         parts.append(text[last:start])
         canonical = asset_name_comparison_key(name)
-        parts.append(f"<{canonical}>" if canonical in normalized_names else text[start:end])
+        parts.append(mark(canonical) if canonical in normalized_names else text[start:end])
         last = end
 
     parts.append(text[last:])

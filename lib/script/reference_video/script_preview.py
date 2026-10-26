@@ -45,6 +45,8 @@ WARN_SILENT_MODEL = "ref_warn_silent_model"
 WARN_SILENT_EPISODE = "ref_warn_silent_episode"
 WARN_SPEAKER_AUDIO_NEEDS_IMAGE = "ref_warn_speaker_audio_needs_image"
 WARN_UNIT_WITHOUT_SCENE = "ref_warn_unit_without_scene"
+WARN_TIMECODE_SEGMENT_TOO_LONG = "ref_warn_timecode_segment_too_long"
+WARN_TIMECODE_GAP = "ref_warn_timecode_gap"
 
 
 @dataclass(frozen=True)

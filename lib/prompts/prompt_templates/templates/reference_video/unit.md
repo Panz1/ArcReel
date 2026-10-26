@@ -9,8 +9,9 @@ invoked_by:
   name: reference_video
 applies_to: {}
 slots:
-  declarations: 第一段：主体绑定（<X>@图片N）、同一角色的形态声明与声音声明（@音频N）；无参考素材时为空
-  body: 第二段：单元正文，mention 已换成主体记号，台词记号已重组，旁白记号已丢弃
+  declarations: 第一段：主体绑定（方言句式，如图N是X）、同一角色的形态声明、主体锁定与声音声明（含口型指令）；无参考素材时为空
+  negative_head: 声明区末尾的正文式负向句（负向「首尾双写」的首，Seedance 官方 BGM badcase 写法）；不双写的方言为空
+  body: 第二段：单元正文，mention 已换成主体记号（方言形态），台词记号已重组，旁白记号已丢弃
   style: 项目画风
   style_description: 项目风格描述
   co_present_characters: 同框的不同角色，本体与衍生合并计一个；不足两个时为空
@@ -19,6 +20,10 @@ slots:
 protected: false
 ---
 {{ declarations }}
+{% if negative_head %}
+
+{{ negative_head }}
+{% endif %}
 
 {{ body }}
 

@@ -555,6 +555,14 @@ MESSAGES = {
         "không có hiệu lực, lời thoại chỉ dùng làm gợi ý cho prompt; video hoàn chỉnh có tiếng hay không "
         "tùy thuộc vào mô hình đã chọn"
     ),
+    "ref_warn_timecode_segment_too_long": (
+        "Đoạn mã thời gian {start}-{end}s của phân cảnh vượt quá 5 giây: quá nhiều hành động hoặc "
+        "quá ít nhịp, nhịp độ video có thể không khớp với mã thời gian"
+    ),
+    "ref_warn_timecode_gap": (
+        "Mã thời gian các phân cảnh không liền mạch: đoạn trước kết thúc ở giây {prev_end} nhưng "
+        "đoạn sau bắt đầu từ giây {start}; khoảng giữa sẽ do mô hình tự lấp đầy"
+    ),
     # Mô tả khung hình phân cảnh nhắc tới @[tên] chưa gắn với ảnh tham chiếu
     "storyboard_warn_mention_unbound": (
         "Mô tả khung hình của {unit_id} nhắc tới @[{name}], nhưng tên này chưa được đăng ký là tài sản hoặc "

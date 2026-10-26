@@ -496,6 +496,8 @@ MESSAGES = {
     "ref_warn_unit_without_scene": "本单元未引用场景，画面地点将由模型自由决定",
     "ref_warn_silent_model": "当前视频模型「{model}」不会生成有声视频，台词仅用于提示词参考",
     "ref_warn_silent_episode": "本集已关闭参考音频：不会上传参考音频，声音一致性不生效，台词仅用于提示词参考；成片是否有声音由所选模型决定",
+    "ref_warn_timecode_segment_too_long": "分镜时间码第 {start}-{end} 秒一段超过 5 秒：动作塞得过满或切拍不足，视频节奏可能与时间码对不上",
+    "ref_warn_timecode_gap": "分镜时间码不衔接：上一段结束于第 {prev_end} 秒，下一段从第 {start} 秒开始；两段之间会被模型自行填补",
     # 分镜画面描述里的 @[名称] 没有绑定到参考图
     "storyboard_warn_mention_unbound": "分镜 {unit_id} 的画面描述引用了 @[{name}]，但它未登记为资产或不在该分镜的引用字段里：不会编号为图N，将按名字原样发送",
     # Episode meta

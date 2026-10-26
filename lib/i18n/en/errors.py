@@ -554,6 +554,14 @@ MESSAGES = {
         "consistency does not apply; dialogue is used only as prompt context. Whether the rendered "
         "video actually has sound depends on the selected model"
     ),
+    "ref_warn_timecode_segment_too_long": (
+        "Shot timecode segment {start}-{end}s exceeds 5 seconds: too many actions or too few beats, "
+        "so the video pacing may not match the timecode"
+    ),
+    "ref_warn_timecode_gap": (
+        "Shot timecodes are not contiguous: the previous segment ends at {prev_end}s while the next "
+        "starts at {start}s; the gap in between is left for the model to fill"
+    ),
     # Storyboard scene text mentions that are not bound to a reference image
     "storyboard_warn_mention_unbound": (
         "The scene text of {unit_id} mentions @[{name}], which is not a registered asset or is not listed in "

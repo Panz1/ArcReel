@@ -265,6 +265,21 @@ class EmptySourceError(ValueError):
 # ==================== 数据模型 ====================
 
 
+class HookPoint(BaseModel):
+    """关键场面（爆点）清单条目：概述阶段通读全文扫出的可直接入画的强冲突场面。
+
+    供首集冷开场取材——首集原文区间内未必有爆点，冷开场允许借用全剧任意位置的场面
+    （闪前），``anchor`` 是该场面在源文中的逐字定位片段。
+    """
+
+    description: str = Field(min_length=1, description="场面描述：可直接入画的具体事件（谁、在哪、发生了什么）")
+    kind: Literal["conflict", "suspense", "contrast", "face_slap", "reversal"] = Field(
+        description="钩子类型：conflict 直接冲突 / suspense 强悬念 / contrast 极致反差 / face_slap 打脸 / reversal 反转"
+    )
+    anchor: str = Field(min_length=1, description="该场面所在处的逐字原文片段（10~30 字，含标点），用于定位")
+    characters: list[str] = Field(default_factory=list, description="场面中的主要角色名（按原文称呼）")
+
+
 class ProjectOverview(BaseModel):
     """项目概述数据模型，用于 Gemini Structured Outputs"""
 
@@ -272,10 +287,65 @@ class ProjectOverview(BaseModel):
     genre: str = Field(description="题材类型，如：古装宫斗、现代悬疑、玄幻修仙")
     theme: str = Field(description="核心主题，如：复仇与救赎、成长与蜕变")
     world_setting: str = Field(description="时代背景和世界观设定，100-200字")
+    hook_points: list[HookPoint] = Field(
+        default_factory=list,
+        description="全剧关键场面清单（爆点），按剧情顺序，3-8 条；全文没有强场面时为空",
+    )
     # language 是 LLM 输出存档字段；唯一真相源是顶层 project["source_language"]，
     # 由 generate_overview 在落盘时同步写入。所有度量/切分调用方一律读顶层字段，
     # 不要直接读 overview.language。
     language: Literal["zh", "en", "vi"] = Field(description="小说源语言代码")
+
+
+def filter_hook_points(hook_points: object, source_content: str) -> list[dict]:
+    """过滤爆点清单里锚点对不上原文的条目（fail-soft：坏条目剔除，好条目保留）。
+
+    ``anchor`` 是爆点在源文中的定位片段，下游分集规划靠它认场面；锚不存在的条目无法
+    落地，与其带病存储不如丢弃。判定与参考生视频原文锚同一口径（删空白后逐字子串，
+    见 :func:`lib.script.reference_video.draft_validation.is_verbatim_source_anchor`），
+    换行 / 空格差异不误杀。
+    """
+    from lib.script.reference_video.draft_validation import is_verbatim_source_anchor
+
+    if not isinstance(hook_points, list):
+        return []
+    return [
+        entry.model_dump()
+        for entry in hook_points
+        if isinstance(entry, HookPoint) and is_verbatim_source_anchor(entry.anchor, source_content)
+    ]
+
+
+#: 爆点类型的英文枚举值 → 面向模型的中文标签（与 source_overview 扫描规则的口径一致）
+HOOK_POINT_KIND_LABELS = {
+    "conflict": "直接冲突",
+    "suspense": "强悬念",
+    "contrast": "极致反差",
+    "face_slap": "打脸",
+    "reversal": "反转",
+}
+
+
+def hook_points_slot(raw: object) -> list[dict] | None:
+    """把 project.json overview.hook_points 投影为生成模板的清单槽位；空 / 坏数据传 None。
+
+    每条带 1 起始的序号——首集冷开场条款要模型写明「选用了清单第几条」，序号是它引用
+    清单的凭据；kind 翻成中文标签，模型读得懂才选得准。
+    """
+    if not isinstance(raw, list):
+        return None
+    projected = [
+        {
+            "index": index,
+            "kind": HOOK_POINT_KIND_LABELS.get(str(entry.get("kind") or ""), "关键场面"),
+            "description": str(entry.get("description") or ""),
+            "anchor": str(entry.get("anchor") or ""),
+            "characters": [name for name in entry.get("characters") or [] if isinstance(name, str)],
+        }
+        for index, entry in enumerate((entry for entry in raw if isinstance(entry, dict)), start=1)
+    ]
+    projected = [entry for entry in projected if entry["description"] and entry["anchor"]]
+    return projected or None
 
 
 def _rename_agnostic_errors(
@@ -4108,6 +4178,8 @@ class ProjectManager:
         # 解析并验证响应
         overview = ProjectOverview.model_validate_json(response_text)
         overview_dict = overview.model_dump()
+        # 爆点锚点对不上原文的条目剔除：分集规划靠 anchor 认场面，带病条目只会误导下游
+        overview_dict["hook_points"] = filter_hook_points(overview.hook_points, source_content)
         overview_dict["generated_at"] = datetime.now(UTC).isoformat()
 
         # 保存到 project.json（RMW 在单一 _project_lock 内完成，避免并发覆盖其它字段）

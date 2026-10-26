@@ -24,7 +24,7 @@ import statistics
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -82,7 +82,7 @@ from lib.infra.async_thread import run_sync_transaction
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.text_metrics import count_reading_units, reading_unit_noun
 from lib.infra.text_utils import strip_json_code_fences
-from lib.project.project_manager import ProjectManager
+from lib.project.project_manager import ProjectManager, hook_points_slot
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.script import script_review
 
@@ -1305,6 +1305,11 @@ def _context_entries(project: Mapping[str, Any]) -> list[dict[str, Any]]:
     return anchored[-_CONTEXT_EPISODES_LIMIT:]
 
 
+def _hook_points_slot(raw: object) -> list[dict[str, Any]] | None:
+    """爆点清单槽位投影；实现收敛在 :func:`lib.project.project_manager.hook_points_slot`。"""
+    return cast(list[dict[str, Any]] | None, hook_points_slot(raw))
+
+
 def _build_planning_prompt(
     *,
     project: Mapping[str, Any],
@@ -1335,6 +1340,7 @@ def _build_planning_prompt(
         source_kind=source_kind,
         synopsis=overview.get("synopsis") or None,
         genre=overview.get("genre") or None,
+        hook_points=_hook_points_slot(overview.get("hook_points")),
         unit_noun=reading_unit_noun(language),
         target_volume=None
         if target_volume is None

@@ -133,12 +133,15 @@ def build_narration_prompt(
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
     instructions: str | None = None,
+    is_premiere: bool = False,
 ) -> str:
     """构建旁白/解说模式 prompt_authoring（视觉层）prompt。
 
     script_plan 已定的 novel_text / 时长 / segment_break / 出场角色 / 场景 / 道具按 segment_id
     透传，prompt_authoring 只产 image_prompt 与 video_prompt。``<segments>`` 块为只读上下文，
     LLM 不重出这些字段——novel_text 由此不再经 prompt_authoring 的 LLM 扩写漂移。
+
+    ``is_premiere`` 表示本集是全剧首集（按播出顺序），首段画面套用开场钩子规则。
     """
     return builtin_templates.render(
         "text/narration_prompt_authoring",
@@ -152,6 +155,7 @@ def build_narration_prompt(
         episode=episode,
         target_language=target_language,
         instructions=instructions,
+        is_premiere=is_premiere,
     )
 
 
@@ -268,6 +272,7 @@ def build_drama_prompt(
     scenes: dict | None = None,
     props: dict | None = None,
     instructions: str | None = None,
+    is_premiere: bool = False,
 ) -> str:
     """构建剧情演绎 prompt_authoring（视觉层）prompt。
 
@@ -279,6 +284,8 @@ def build_drama_prompt(
 
     ``characters`` / ``scenes`` / ``props`` 注入出场资产的外观描述（project.json 各 bucket），
     供视觉字段写服装 / 材质 / 陈设细节时取材；三者都为 None 时不渲染资产块。
+
+    ``is_premiere`` 表示本集是全剧首集（按播出顺序），首镜套用开场钩子规则。
     """
     return builtin_templates.render(
         "text/drama_prompt_authoring",
@@ -296,6 +303,7 @@ def build_drama_prompt(
         episode=episode,
         target_language=target_language,
         instructions=instructions,
+        is_premiere=is_premiere,
     )
 
 
@@ -317,6 +325,7 @@ def build_normalize_prompt(
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
     instructions: str | None = None,
+    is_premiere: bool = False,
 ) -> str:
     """脚本规划的规范化 prompt：源文 → 结构化分镜内容（utterances + source_text + 视觉改编描述）。
 
@@ -328,6 +337,8 @@ def build_normalize_prompt(
     回退默认语速；``speech_rate_override`` 是项目级语速覆盖，``None`` 即回退语言默认。
     ``episode_target_duration`` / ``episode_outline`` / ``next_episode_outline`` / ``instructions`` 为
     ``None`` 或空时不渲染对应分节。
+
+    ``is_premiere`` 表示本集是全剧首集（按播出顺序），开场分镜套用首集冷开场规则。
     """
     # 空集合或 default 不在集合内都会产出自相矛盾的提示词，生成前失败更便于诊断。
     normalized_durations = sorted({int(d) for d in supported_durations})
@@ -359,6 +370,7 @@ def build_normalize_prompt(
         episode_outline=outline_slot(episode_outline),
         next_episode_outline=outline_slot(next_episode_outline),
         instructions=instructions or None,
+        is_premiere=is_premiere,
     )
 
 
@@ -375,6 +387,8 @@ def build_narration_split_prompt(
     target_language: str = "中文",
     episode_target_duration: int | None = None,
     instructions: str | None = None,
+    is_premiere: bool = False,
+    hook_points: list[dict] | None = None,
 ) -> str:
     """脚本规划的旁白/解说分镜拆分 prompt：源文 → 结构化分镜表（逐字 novel_text + 时长 + 资产登记）。
 
@@ -390,6 +404,9 @@ def build_narration_split_prompt(
 
     ``episode_target_duration`` 是项目级「单集目标时长」偏好（秒），驱动模型决定本集拆多少个分镜；
     ``None`` 即未设目标、不注入该段。与 ``default_duration`` 是两个尺度，同为软偏好。
+
+    ``is_premiere`` 表示本集是全剧首集（按播出顺序），首段分镜保证开场钩子职能；
+    ``hook_points`` 是全剧爆点清单（overview 生成），首集冷开场分镜从清单取材。
     """
     normalized_durations = sorted({int(d) for d in supported_durations})
     if not normalized_durations:
@@ -412,6 +429,8 @@ def build_narration_split_prompt(
         episode=episode,
         target_language=target_language,
         instructions=instructions,
+        is_premiere=is_premiere,
+        hook_points=hook_points,
     )
 
 

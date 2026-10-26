@@ -36,7 +36,7 @@ from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextGener
 from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver, VideoGenerationType, video_bucket_for_generation_mode
 from lib.db import async_session_factory
-from lib.episode.episode_ids import episode_title
+from lib.episode.episode_ids import episode_position, episode_title
 from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
     REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
@@ -600,11 +600,19 @@ class ScriptGenerator:
             # 输出语言取项目 source_language，与正式剧本透传的内容字段同一语言（同 drama）
             target_language=self.project_json.get("source_language") or "中文",
             instructions=instructions,
+            is_premiere=self._is_premiere(episode),
         )
 
     def _project_bucket(self, key: str) -> dict:
         bucket = self.project_json.get(key)
         return bucket if isinstance(bucket, dict) else {}
+
+    def _is_premiere(self, episode: int) -> bool:
+        """本集是否为播出顺序第一集（全剧首集）：首集开场规则只对它生效。
+
+        分集重规划后集 ID 不复用、位置可变，不能用 ``episode == 1`` 判定，须查账本播出顺序。
+        """
+        return episode_position(self.project_json, episode) == 1
 
     def _parse_visual_layer(self, response_text: str, targets: PromptAuthoringTargets) -> list[dict]:
         """按骨架种类严格校验视觉层响应，返回逐条目视觉层 dict（id + image_prompt + video_prompt）。"""
@@ -854,6 +862,7 @@ class ScriptGenerator:
             scenes=scenes,
             props=props,
             instructions=instructions,
+            is_premiere=self._is_premiere(episode),
         )
 
     async def _generate_and_save(
@@ -1545,6 +1554,7 @@ class ScriptGenerator:
             episode=episode,
             target_language=self.project_json.get("source_language") or "中文",
             instructions=instructions,
+            is_premiere=self._is_premiere(episode),
         )
 
     @staticmethod

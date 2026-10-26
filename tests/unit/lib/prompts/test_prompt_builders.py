@@ -26,7 +26,9 @@ class TestCharacterPrompt:
         assert "黑发，冷静神态。" in prompt
         assert "Style: 古风" in prompt
         assert "Visual style: Cinematic, low-key lighting" in prompt
-        assert prompt.endswith("Avoid: 水印、多余文字、Logo")
+        # avoid 行收尾；排除清单本体随资产图规范演进，只锚定行存在与三项基本收尾项
+        assert "Avoid: " in prompt
+        assert prompt.endswith("水印、多余文字、Logo")
         assert "Cinematic, low-key lighting" in prompt
 
 
@@ -58,7 +60,9 @@ class TestFigureExclusion:
 
     def test_exclusion_survives_a_description_that_repeats_it(self):
         prompt = build_scene_prompt("祠堂", "昏暗古朴，无出镜人物、无声响。")
-        assert prompt.endswith("Avoid: 出镜人物、水印、多余文字、Logo")
+        # 出镜人物排除项仍是 avoid 行首项；清单其余项随图种规范演进，只锚定收尾三项
+        assert "Avoid: 出镜人物、" in prompt
+        assert prompt.endswith("水印、多余文字、Logo")
 
     def test_character_and_storyboard_keep_people(self):
         assert self._EXCLUSION not in build_character_prompt("张三", "短发青年")
@@ -232,6 +236,6 @@ def test_product_sheet_preserves_product_and_ignores_project_style():
 def test_derivative_keeps_reference_layout_and_has_no_style_block():
     prompt = build_character_derivative_prompt("衣服变为黑色")
     assert prompt.startswith("衣服变为黑色")
-    assert "保持原图的三视图版式" in prompt
+    assert "保持原图的四面板版式" in prompt
     assert "Style:" not in prompt
     assert prompt.endswith("Avoid: 水印、多余文字、Logo")

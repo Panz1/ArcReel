@@ -82,7 +82,7 @@ class TestDerivativeSheetGeneration:
 
         content = request_json(only_request(submit))["input"]["messages"][0]["content"]
         prompt = next(item["text"] for item in content if "text" in item)
-        assert "保持原图的三视图版式" in prompt
+        assert "保持原图的四面板版式" in prompt
         assert prompt.endswith("Avoid: 水印、多余文字、Logo")
         assert "Style:" not in prompt
         images = _sent_images(submit)

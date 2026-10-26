@@ -316,6 +316,14 @@ class TestScreenplaySourceKind:
         assert "她推开门" in prompt
         assert "她推开门" not in self._normalize_prompt("novel")
 
+    def test_normalize_premiere_adds_opening_hook_rules(self):
+        """全剧首集（按播出顺序）：开场 5 秒钩子规则进 prompt，冷开场执行条款挂在大纲块内。"""
+        assert "首集开场" in self._normalize_prompt("novel", is_premiere=True)
+        outline = {"title": "复仇", "hook": "她推开门", "story_beats": ["归家", "对峙"], "next_episode_teaser": None}
+        assert "首集冷开场" in self._normalize_prompt("novel", is_premiere=True, episode_outline=outline)
+        assert "首集冷开场" not in self._normalize_prompt("novel", episode_outline=outline)
+        assert "首集开场" not in self._normalize_prompt("novel")
+
     def test_normalize_source_block_has_one_heading_and_kind_tag(self):
         for source_kind, other in (("novel", "screenplay"), ("screenplay", "novel")):
             prompt = self._normalize_prompt(source_kind)
@@ -410,10 +418,10 @@ class TestScreenplaySourceKind:
             episode_outline={"title": 42, "story_beats": ["  ", "踏进祖宅"], "hook": "  ", "next_episode_teaser": None},
         )
         assert (
-            "<episode_outline>\n本集大纲（分集规划设计，剧本内容应覆盖全部故事节点）：\n故事节点：\n- 踏进祖宅\n</episode_outline>"
+            "<episode_outline>\n本集大纲（分集规划已定，剧本必须严格按此创作，不得偏离）：\n故事节点：\n- 踏进祖宅\n"
             in prompt
         )
-        assert "末场（最后一个或几个分镜）" not in prompt
+        assert "钩子定格结尾" not in prompt
         blank = {"title": " ", "story_beats": [""], "hook": " ", "next_episode_teaser": " "}
         assert self._normalize_prompt("novel", episode_outline=blank) == self._normalize_prompt("novel")
 
@@ -424,10 +432,13 @@ class TestScreenplaySourceKind:
             next_episode_outline={"title": "族谱", "story_beats": ["族谱缺页"]},
         )
         assert (
-            "<episode_outline>\n本集大纲（分集规划设计，剧本内容应覆盖全部故事节点）：\n本集标题：归家\n"
-            "故事节点：\n- 踏进祖宅\n集尾钩子：信纸落下\n</episode_outline>"
-        ) in prompt
-        assert "末场（最后一个或几个分镜）的画面与对白须实际呈现集尾钩子" in prompt
+            "<episode_outline>\n本集大纲（分集规划已定，剧本必须严格按此创作，不得偏离）：\n本集标题：归家\n"
+            "故事节点：\n- 踏进祖宅\n集尾钩子：信纸落下\n" in prompt
+        )
+        assert (
+            "钩子定格结尾：本集「集尾钩子」描述的悬念 / 未完成动作 / 反转，必须在结尾的分镜实际演出来并定格在画面"
+            in prompt
+        )
         assert (
             "<next_episode_outline>\n下集大纲（仅用于设计本集结尾的衔接，不要把下集情节提前写进本集）：\n"
             "下集标题：族谱\n故事节点：\n- 族谱缺页\n</next_episode_outline>"
@@ -436,19 +447,21 @@ class TestScreenplaySourceKind:
     def test_normalize_omits_hook_landing_without_hook_or_teaser(self):
         prompt = self._normalize_prompt("novel", episode_outline={"title": "归家", "story_beats": ["踏进祖宅"]})
         assert "<episode_outline>" in prompt
-        assert "末场（最后一个或几个分镜）" not in prompt
+        assert "钩子定格结尾" not in prompt
 
     def test_normalize_appends_instructions_after_single_blank_line(self):
         for source_kind in ("novel", "screenplay"):
             prompt = self._normalize_prompt(source_kind, instructions="多用近景。\n少用旁白。")
-            assert prompt.endswith("留空。\n\n# 附加指令\n多用近景。\n少用旁白。")
+            assert prompt.endswith("`register` 与 `derivative` 留空即违约。\n\n# 附加指令\n多用近景。\n少用旁白。")
             plain = self._normalize_prompt(source_kind)
             assert "# 附加指令" not in plain
             assert plain == self._normalize_prompt(source_kind, instructions="")
 
     def test_normalize_injects_pacing(self):
         # script_plan 无条件提供开篇节奏建议。
-        assert "开篇~4秒承担钩子职能" in self._squash(self._normalize_prompt("novel"))
+        squashed = self._squash(self._normalize_prompt("novel"))
+        assert "开篇0-3秒承担钩子职能" in squashed
+        assert "3-10秒内接住矛盾" in squashed
 
 
 class TestOverviewPrompt:
@@ -468,6 +481,18 @@ class TestOverviewPrompt:
         assert prompt == (
             "请分析以下小说内容，提取关键信息：\n\n"
             "**输出语言**：所有字符串值必须使用 English；JSON 键名 / 枚举值保持英文。\n\n"
+            "# 关键场面清单（hook_points）\n\n"
+            "通读全文，挑出 3-8 个「爆点」场面——最炸裂的冲突、最强悬念、最极致的身份反差、最爽的打脸、"
+            "最关键的反转——按剧情顺序写入 hook_points。这是给短视频首集「冷开场」备的弹药："
+            "观众只给前几秒，开场必须直接落在这些场面之一上。\n\n"
+            "- **description**：直接入画的具体事件——谁、在哪、发生了什么、结果如何；不写抽象概括"
+            "（「矛盾激化」不合格，「她在婚礼上当众撕了婚书」合格）。\n"
+            "- **kind**：conflict（直接冲突）/ suspense（强悬念）/ contrast（极致反差）/ face_slap（打脸）"
+            "/ reversal（反转），五选一。\n"
+            "- **anchor**：该场面所在处的逐字原文片段，10~30 个字符、含标点、从下方原文中原样摘抄"
+            "——它用于在全文中定位这场戏，必须逐字一致。\n"
+            "- **characters**：场面中的主要角色名，按原文称呼；泛指群演（路人甲、村民若干）不写。\n"
+            "- 宁缺毋滥：只收真正有冲击力的场面；全文确实没有强场面时给空数组，不要硬凑。\n\n"
             "正文内容"
         )
 
@@ -619,18 +644,30 @@ class TestPromptAuthoringPromptGuards:
             **overrides,
         )
 
-    def _drama_prompt(self) -> str:
-        return build_drama_prompt(
-            project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
-            style="动漫",
-            style_description="日漫半厚涂",
-            scenes_content="### E2S01（时长 4 秒）\n视觉改编：xxx",
-            episode=2,
-        )
+    def _drama_prompt(self, **overrides) -> str:
+        kwargs = {
+            "project_overview": {"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
+            "style": "动漫",
+            "style_description": "日漫半厚涂",
+            "scenes_content": "### E2S01（时长 4 秒）\n视觉改编：xxx",
+            "episode": 2,
+        }
+        kwargs.update(overrides)
+        return build_drama_prompt(**kwargs)
 
     def test_drama_prompt_injects_pacing(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing-profile"))
-        assert "开篇~4秒承担钩子职能" in self._squash(self._drama_prompt())
+        squashed = self._squash(self._drama_prompt())
+        assert "开篇0-3秒承担钩子职能" in squashed
+        assert "3-10秒内接住矛盾" in squashed
+
+    def test_drama_prompt_premiere_adds_opening_hook_rules(self):
+        """全剧首集：开场钩子规则与首镜视觉要求进 prompt，常规集不带。"""
+        premiere = self._squash(self._drama_prompt(is_premiere=True))
+        assert "首集开场（全剧第一集" in premiere
+        assert "首镜视觉" in premiere
+        assert "打脸蓄力" in premiere
+        assert "首集开场" not in self._squash(self._drama_prompt())
 
     @pytest.mark.parametrize("instructions", [None, "", "末镜保留雨声。"])
     def test_narration_instructions_are_an_optional_section(self, instructions):
@@ -647,6 +684,13 @@ class TestPromptAuthoringPromptGuards:
     def test_narration_prompt_injects_pacing(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ARCREEL_PROFILE_DIR", str(tmp_path / "missing-profile"))
         assert "首段画面（朗读前~4秒）服务于钩子" in self._squash(self._narration_prompt())
+
+    def test_narration_prompt_premiere_fronts_first_segment_visual(self):
+        """全剧首集：第一段分镜的画面选原文首句可承载的最强视觉，常规集不带。"""
+        premiere = self._squash(self._narration_prompt(is_premiere=True))
+        assert "首集开场（全剧第一集）" in premiere
+        assert "禁止介绍性远景与空镜开场" in premiere
+        assert "首集开场" not in self._squash(self._narration_prompt())
 
     def test_drama_no_enum_dump_in_prompt(self):
         """schema 已声明的枚举不再在 prompt 中重复列举（节省 token + 防漂移）。"""
@@ -780,6 +824,32 @@ class TestBuildNarrationSplitPrompt:
     def test_novel_text_verbatim_instruction(self):
         text = self._prompt()
         assert "张三走向村口，久久凝望。" in text
+
+    def test_premiere_keeps_verbatim_but_fronts_opening_impact(self):
+        """全剧首集：novel_text 仍逐字锁定，首段分镜时长放宽、开场冲击交给提示词编写。"""
+        premiere = self._prompt(is_premiere=True)
+        assert "首集开场" in premiere
+        assert "逐字切分不改写" in premiere
+        assert "首集开场" not in self._prompt()
+
+    def test_premiere_cold_open_segment_from_hook_points(self):
+        """首集 + 爆点清单：插 E1S00 冷开场分镜写改编闪前旁白（逐字豁免），清单随附。"""
+        slot = [
+            {
+                "index": 1,
+                "kind": "直接冲突",
+                "description": "她当众撕了婚书",
+                "anchor": "她当众撕了婚书",
+                "characters": ["她"],
+            }
+        ]
+        premiere = self._prompt(is_premiere=True, hook_points=slot)
+        assert "E1S00" in premiere
+        assert "不受逐字约束" in premiere
+        assert "第 1 条〔直接冲突〕她当众撕了婚书" in premiere
+        # 无清单退回区间内口径；非首集不注入
+        assert "E1S00" not in self._prompt(is_premiere=True)
+        assert "E1S00" not in self._prompt(hook_points=slot)
 
 
 #: 一个带衍生的角色表：候选块要列出 `姜月茴/劲装`，其外观是本体描述加上这一段变化。

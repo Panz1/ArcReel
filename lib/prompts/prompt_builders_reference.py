@@ -53,6 +53,7 @@ def build_reference_units_split_prompt(
     episode_outline: dict | None = None,
     next_episode_outline: dict | None = None,
     instructions: str | None = None,
+    is_premiere: bool = False,
 ) -> str:
     """Step-1 video_unit 拆分 prompt：源文 → 扁平 unit 表（时长 + 原文锚 + 引用语法正文）。
 
@@ -82,6 +83,7 @@ def build_reference_units_split_prompt(
         episode_outline / next_episode_outline: 分集账本大纲（``episode_outline_context``
             的返回值），用于约束本集内容边界；为 None 时不插入该段。
         instructions: 附加指令正文；空 / None 时不渲染该分节。
+        is_premiere: 本集是全剧首集（按播出顺序），集首开场套用首集钩子规则。
     """
     normalized_durations = sorted({int(d) for d in supported_durations})
     if not normalized_durations:
@@ -144,6 +146,7 @@ def build_reference_units_split_prompt(
         max_reference_images=max_reference_images,
         episode_target_duration=episode_target_duration,
         instructions=instructions,
+        is_premiere=is_premiere,
     )
 
 
@@ -176,6 +179,7 @@ def build_reference_video_prompt(
     aspect_ratio: str = "9:16",
     target_language: str = "中文",
     instructions: str | None = None,
+    is_premiere: bool = False,
 ) -> str:
     """构建参考生视频 prompt_authoring（提示词编写）的 LLM Prompt。
 
@@ -190,6 +194,7 @@ def build_reference_video_prompt(
             由 ``render_reference_units_for_prompt_authoring`` 机械渲染进 prompt。
         max_refs: 当前视频模型支持的最大参考图数；为 None 时不写入硬性数量约束。
         instructions: 附加指令正文；空 / None 时不渲染该分节。
+        is_premiere: 本集是全剧首集（按播出顺序），unit 1 套用首集开场视觉规则。
     """
     return builtin_templates.render(
         "text/reference_video_prompt_authoring",
@@ -204,4 +209,5 @@ def build_reference_video_prompt(
         episode=episode,
         max_refs=max_refs,
         instructions=instructions,
+        is_premiere=is_premiere,
     )

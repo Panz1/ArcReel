@@ -890,3 +890,22 @@ class TestResolveContentMode:
 
     def test_falls_back_to_narration_when_both_omit_it(self):
         assert resolve_content_mode({}, {}) == "narration"
+
+
+class TestReferenceFlatUnitColdOpen:
+    """参考生视频 unit 的冷开场标记：闪前借用本集源文区间之外的场面，锚留空合法。"""
+
+    def test_cold_open_allows_empty_source_text(self):
+        from lib.script.script_models import ReferenceScriptPlanFlatUnit
+
+        unit = ReferenceScriptPlanFlatUnit(
+            duration_seconds=8, cold_open=True, source_text="", text="谁能想到，三个月后他们会为钱反目。"
+        )
+        assert unit.cold_open is True
+
+    def test_cold_open_defaults_false_and_source_text_defaults_empty(self):
+        from lib.script.script_models import ReferenceScriptPlanFlatUnit
+
+        unit = ReferenceScriptPlanFlatUnit(duration_seconds=8, source_text="锚", text="正文")
+        assert unit.cold_open is False
+        assert ReferenceScriptPlanFlatUnit(duration_seconds=8, text="x").source_text == ""

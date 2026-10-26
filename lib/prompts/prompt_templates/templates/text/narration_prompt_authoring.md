@@ -23,6 +23,7 @@ slots:
   assets: 出场资产外观 {characters, scenes, props}，每项为 [{name, appearance}]，尖括号已中和
   segments_content: 已定稿旁白分镜的只读内容投影
   episode: 当前集号
+  is_premiere: 是否全剧首集（按播出顺序的第一集）；首集须保证首段画面的钩子职能
   instructions: 附加指令正文；缺值传 null
 protected: false
 ---
@@ -36,6 +37,10 @@ protected: false
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
 {{ partial("shared/pacing/narration") }}
+{% if is_premiere %}
+首集开场（全剧第一集）：第一段分镜的画面选原文首句可承载的最强视觉（冲突瞬间 / 异常物件 / 人物特写），
+shot_type 取 Close-up / Extreme Close-up，禁止介绍性远景与空镜开场。
+{% endif %}
 
 # 上下文
 

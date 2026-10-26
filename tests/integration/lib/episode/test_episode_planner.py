@@ -83,6 +83,10 @@ def _expected_planning_prompt(
         "- 每一集给出 title（吸引人的短标题）、hook（集尾钩子说明：这一刀为什么切在这、给观众留了什么悬念）、",
         "  end_anchor（本集结尾处的原文片段，10~30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；",
         "  本集内容 = 上一集结尾之后到该片段末尾为止的全部原文）。",
+        "- 切分点的落点以「钩子」为准（钩子感知切分）：每一刀都必须切在**本集剧情弧的收束处**——一个尚未解决的悬念、一个未完成的动作、一次反转揭示、或一个关键抉择的瞬间，让本集以钩子收尾；不要在平稳过渡段切，也不要在单一事件进行到一半时硬切（那样会让本集结尾无钩、下一集开头接不上）。",
+        "- 前几集（尤其首集）是观众留存的关键，钩子必须最强：首集要在最短篇幅内抛出核心悬念、完成主要人物的集结或引爆首个冲突，并以「让人必须马上看下一集」的钩子收尾；不求在首集交代完所有设定，先抓住人。越靠前的集，越优先把落点选在强收尾处。",
+        # context_entries 为空（本批从全剧开头起规划）时才注入：首集开场条款
+        "- 本批第一集是全剧首集，还要为它的「开场 5 秒」负责：首集的前 3 秒直接落在最强冲击瞬间（直接冲突 / 强悬念 / 极致反差，取自本集区间内的场面），不做铺垫式开场；首集体量取目标体量的下限，宁短勿长，快速进冲突、快速到钩子。",
     ]
     if screenplay:
         lines.append(
@@ -92,11 +96,20 @@ def _expected_planning_prompt(
             "剧本未分集时按完整剧情弧切分，每一集都是一个完整的故事段落。"
         )
     if content_mode == "drama":
-        lines.append(
-            "- 每一集另给出 story_beats（本集故事节点列表，按顺序）"
-            "与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）"
-            + ("；剧本已写明本集节点 / 下集预告时照搬其原文，未写明再自行提炼。" if screenplay else "。")
-        )
+        if screenplay:
+            lines += [
+                "- 每一集另给出 story_beats（本集故事节点列表，按顺序）与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）；剧本已写明本集节点 / 下集预告时照搬其原文，未写明再自行提炼。",
+                "- story_beats 的每个节点都必须真实发生在本集 end_anchor 所界定的本集原文区间内（即上一集结尾之后、到本集 end_anchor 片段末尾之间这段本集真正包含的原文）；最后一个节点必须是本集 end_anchor 之前最近发生的真实事件，绝不可把下一集开头（本集 end_anchor 之后）的场景或事件写进本集 story_beats。next_episode_teaser 允许预告下一集，但 story_beats 严禁越界到本集原文之外。",
+            ]
+        else:
+            lines += [
+                "- 每一集另给出 story_beats（本集故事节点列表，按顺序，3-6 条，每条是一个可拍摄的具体事件，不写情绪概括）与 next_episode_teaser（下集预告语；最后一集若后续未知可为 null）。",
+                "- 切集以「因果钩子」为准：hook 要写清这一刀切在哪、观众此刻最想知道什么，且悬念必须由本集已发生的事件自然引出（前因已埋、收在悬而未决），不要靠突然冒出的新信息硬造。",
+                "- 每一集要有独立弧光：本集内至少完成一次「目标→受阻→转折」的小闭环，单集拿出来能自洽，同时把更大的追问留给后续。",
+                "- 钩子强度：常规集让人想知道「接下来会怎样」；关键集（首集、中段反转集、季终）要让人「必须马上看下一集」，优先以未完成的动作、未说完的话、反转揭示收尾。前几集整体钩子强度应高于中段平稳集——开篇越近，越要用强钩子把观众钉在屏幕前；首集务必以最强钩子收尾。",
+                "- 首集（全剧第一集）的 story_beats[0] 应为「冷开场」节拍：上方「关键场面清单」可用时，选冲击力最强的一条，把该场面的完整内容写进节拍并标注「冷开场（闪前，清单第 N 条）」——它允许取自后面任何集的原文区间，是对后续剧情的闪前；清单为空或不适用时，把本集区间内最炸的冲突场面提到开场演绎，标注「冷开场」。冷开场之后按叙事顺序回补前因；除冷开场节拍外，其余节点仍须发生在本集 end_anchor 界定的原文区间内。",
+                "- story_beats 的每个节点都必须真实发生在本集 end_anchor 所界定的本集原文区间内（即上一集结尾之后、到本集 end_anchor 片段末尾之间这段本集真正包含的原文）；最后一个节点必须是本集 end_anchor 之前最近发生的真实事件，绝不可把下一集开头（本集 end_anchor 之后）的场景或事件写进本集 story_beats。next_episode_teaser 允许预告下一集，但 story_beats 严禁越界到本集原文之外。",
+            ]
     lines += [
         "- 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。",
         "- 这段原文已包含全文结尾：请规划到结尾，最后一集的 end_anchor 取全文结尾处的片段，不要留尾巴。",
@@ -1110,17 +1123,62 @@ class TestPlan:
         await EpisodePlanner(novel_dir, generator=nov_fake).plan()
         nov_prompt = nov_fake.requests[0].prompt
 
-        # screenplay：尊重作者分集、一集止于下一集开头之前（整段 prompt 只定义一次）、无则按剧情弧切
+        # screenplay：尊重作者分集、一集止于下一集开头之前（该口径整段 prompt 只定义一次）、无则按剧情弧切
         assert "尊重作者" in scr_prompt
-        assert scr_prompt.count("下一集开头") == 1
+        assert scr_prompt.count("照用作者的分集") == 1
         assert "固定标记" not in scr_prompt
         assert "正则" not in scr_prompt
         assert "剧情弧" in scr_prompt
         assert "剧本原文片段" in scr_prompt
-        # novel：仍是「切分为若干集」的创作口径，不含 screenplay 专属指令（回归）
+        # novel：仍是「切分为若干集」的创作口径，不含 screenplay 专属的作者分集提取口径（回归）
         assert "尊重作者" not in nov_prompt
-        assert "下一集开头" not in nov_prompt
+        assert "照用作者的分集" not in nov_prompt
         assert "小说原文片段" in nov_prompt
+
+    async def test_plan_premiere_cold_open_prefers_hook_points(self, tmp_path: Path):
+        """概述带爆点清单时，首批 prompt 注入清单并要求首集冷开场从清单取材（允许跨集闪前）。"""
+        project_dir = _write_project(
+            tmp_path,
+            content_mode="drama",
+            extra={
+                "overview": {
+                    "synopsis": "发小返乡创业",
+                    "hook_points": [
+                        {
+                            "description": "她当众撕了婚书",
+                            "kind": "contrast",
+                            "anchor": "卷入漩涡之中。",
+                            "characters": ["她"],
+                        },
+                        {"description": "坏条目没有锚", "kind": "conflict", "anchor": "", "characters": []},
+                    ],
+                }
+            },
+        )
+        fake = _FakeTextGenerator(
+            [
+                _plan_response(
+                    [
+                        {
+                            "title": "古玉藏诀",
+                            "hook": "剑诀来历成谜",
+                            "end_anchor": ANCHOR_EP1,
+                            "story_beats": ["冷开场（闪前，清单第 1 条）：她当众撕了婚书", "李恒获得古玉"],
+                            "next_episode_teaser": None,
+                        }
+                    ]
+                )
+            ]
+        )
+
+        await EpisodePlanner(project_dir, generator=fake).plan()
+
+        prompt = fake.requests[0].prompt
+        assert "从下方「关键场面清单」里选冲击力最强的一条" in prompt
+        assert "允许不在首集原文区间内" in prompt
+        # 投影剔除缺 description / anchor 的坏条目，序号与类型标签就位
+        assert "第 1 条〔极致反差〕她当众撕了婚书" in prompt
+        assert "坏条目" not in prompt
 
     async def test_plan_window_limits_prompt_window(self, tmp_path: Path):
         """窗口外内容不进 prompt。"""

@@ -16,6 +16,7 @@ slots:
   source_kind: 源文类型轴值（novel / screenplay），用于解析命名变体片段
   synopsis: 故事概述；无时传 null
   genre: 题材；无时传 null
+  hook_points: 全剧关键场面清单（爆点），对象列表 {index, kind, description, anchor, characters}，index 从 1 起；未生成概述或无清单时传 null
   unit_noun: 阅读单位量词（字 / 词），随源文语言
   target_volume: 每集目标体量，键齐全的对象 {units, seconds, units_per_second}；seconds 与 units_per_second 仅按单集目标时长折算时有值，语速已格式化为文本；未设置时传 null
   max_episodes: 本批最多规划的集数，由文本模型的输出上限推导
@@ -70,6 +71,16 @@ protected: false
   本集内容 = 上一集结尾之后到该片段末尾为止的全部原文）。
 - 切分点的落点以「钩子」为准（钩子感知切分）：每一刀都必须切在**本集剧情弧的收束处**——一个尚未解决的悬念、一个未完成的动作、一次反转揭示、或一个关键抉择的瞬间，让本集以钩子收尾；不要在平稳过渡段切，也不要在单一事件进行到一半时硬切（那样会让本集结尾无钩、下一集开头接不上）。
 - 前几集（尤其首集）是观众留存的关键，钩子必须最强：首集要在最短篇幅内抛出核心悬念、完成主要人物的集结或引爆首个冲突，并以「让人必须马上看下一集」的钩子收尾；不求在首集交代完所有设定，先抓住人。越靠前的集，越优先把落点选在强收尾处。
+{% if not context_entries %}
+{% if hook_points %}
+- 本批第一集是全剧首集：开场即钩子——从下方「关键场面清单」里选冲击力最强的一条，作为首集开场 3 秒的冷开场；它允许不在首集原文区间内（对后面剧情的闪前，正片演到时重复演绎是可接受的），并在该集 hook 的说明里写明「开场选用清单第 N 条」；首集体量取目标体量的下限，宁短勿长，快速进冲突、快速到钩子。
+
+关键场面清单：
+{{ partial("shared/lists/hook_points") }}
+{% else %}
+- 本批第一集是全剧首集，还要为它的「开场 5 秒」负责：首集的前 3 秒直接落在最强冲击瞬间（直接冲突 / 强悬念 / 极致反差，取自本集区间内的场面），不做铺垫式开场；首集体量取目标体量的下限，宁短勿长，快速进冲突、快速到钩子。
+{% endif %}
+{% endif %}
 {{ variant("text/episode_plan/author_division_rule", source_kind) }}
 {{ variant("text/episode_plan/outline_rule", content_mode) }}
 - 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。

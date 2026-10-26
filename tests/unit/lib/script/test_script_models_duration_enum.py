@@ -196,8 +196,8 @@ class TestReferenceUnitsScriptPlanModel:
         schema = self._model().model_json_schema()
         unit_def = next(d for d in schema.get("$defs", {}).values() if "text" in d.get("properties", {}))
         assert unit_def["properties"]["duration_seconds"]["enum"] == [4, 6, 8]
-        # 机械可派生的字段一律不进 LLM 输出 schema
-        assert set(unit_def["properties"]) == {"duration_seconds", "source_text", "text"}
+        # 机械可派生的字段一律不进 LLM 输出 schema；cold_open 是首集冷开场的显式标记
+        assert set(unit_def["properties"]) == {"duration_seconds", "source_text", "cold_open", "text"}
 
     def test_member_duration_accepted(self):
         draft = self._model().model_validate({"units": [self._unit()]})
@@ -236,5 +236,7 @@ class TestReferenceUnitsScriptPlanModel:
     def test_blank_required_text_rejected(self):
         with pytest.raises(ValidationError):
             self._model().model_validate({"units": [self._unit(text="")]})
-        with pytest.raises(ValidationError):
-            self._model().model_validate({"units": [self._unit(source_text="")]})
+        # 空锚的拦截在 validate_source_text_anchor（含「冷开场 unit 豁免」分支），schema 层放行
+        accepted = self._model().model_validate({"units": [self._unit(source_text=""), self._unit(cold_open=True)]})
+        assert accepted.model_dump()["units"][0]["source_text"] == ""
+        assert accepted.model_dump()["units"][1]["cold_open"] is True

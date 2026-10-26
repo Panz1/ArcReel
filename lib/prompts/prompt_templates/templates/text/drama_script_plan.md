@@ -27,6 +27,7 @@ slots:
   prop_names: 可引用的道具名
   novel_text: 本集源文
   episode: 集号
+  is_premiere: 是否全剧首集（按播出顺序的第一集）；首集须套用开场钩子规则
   durations: 视频模型支持的秒数档位
   max_duration: 最长档位秒数
   default_duration: 单个分镜的默认秒数；未设置为空
@@ -44,6 +45,9 @@ protected: false
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
 {{ partial("shared/pacing/drama") }}
+{% if is_premiere %}
+{{ partial("shared/premiere_opening") }}
+{% endif %}
 
 ## 项目信息
 
@@ -81,6 +85,10 @@ protected: false
 {% if episode_outline.hook or episode_outline.next_episode_teaser %}
 
 - 钩子定格结尾：本集「集尾钩子」描述的悬念 / 未完成动作 / 反转，必须在结尾的分镜实际演出来并定格在画面；有下集预告语时只用于设计结尾衔接，用结尾画面或对白自然引出，不要生硬插入「下集预告」字样的旁白，也不得提前把下集情节写进本集。
+{% if is_premiere %}
+
+- 首集冷开场：大纲第一个故事节点若是「冷开场」节拍（含「闪前」借用后面集的场面），第一个分镜必须实际演出该场面，不得只在画面描述里带过；闪前场面不在本集源文区间内时，该分镜的 source_text 留空，并用一句画外音点明这是后来的事（如「此时谁也没想到，……」），随后再按顺序回补前因。除冷开场节拍外，其余内容仍受上方「边界锁定」约束。
+{% endif %}
 {% endif %}
 </episode_outline>
 

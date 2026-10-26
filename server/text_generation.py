@@ -27,7 +27,7 @@ from lib.backends.text_backends.base import TextGenerationRequest as BackendText
 from lib.backends.text_generator import TextGenerator
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver
-from lib.episode.episode_ids import describe_episode_for_agent
+from lib.episode.episode_ids import describe_episode_for_agent, episode_position
 from lib.episode.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
     episode_drafts_dir,
@@ -49,7 +49,7 @@ from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int, is_str
 from lib.infra.text_utils import strip_json_code_fences
 from lib.project.asset_types import ASSET_SPECS, BUCKET_KEY, asset_name_comparison_key
-from lib.project.project_manager import ProjectManager, is_reference_video_project
+from lib.project.project_manager import ProjectManager, hook_points_slot, is_reference_video_project
 from lib.prompts.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompts.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
@@ -931,6 +931,7 @@ async def generate_drama_script_plan(
             speech_rate_override=cast(float | None, prompt_inputs["speech_rate_override"]),
             episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
             instructions=instructions,
+            is_premiere=episode_position(project, episode) == 1,
         )
 
         if request.dry_run:
@@ -1184,6 +1185,7 @@ def collect_reference_flat_violations(
         duration = flat["duration_seconds"]
         source_text = flat["source_text"]
         text = flat["text"]
+        cold_open = bool(flat.get("cold_open"))
         with_reference_images = hydration.hydrated_generation_type == "r2v"
 
         def _check_text_and_tier(
@@ -1195,7 +1197,9 @@ def collect_reference_flat_violations(
         violations.extend(
             collect_violations(
                 [
-                    lambda la=label, st=source_text: validate_source_text_anchor(la, st, novel_text),
+                    # 冷开场 unit 闪前借用本集源文区间之外的场面，没有本集锚可言，豁免锚校验；
+                    # 其余 unit 的空锚 / 假锚仍由 validate_source_text_anchor 照常拦截
+                    *([] if cold_open else [lambda la=label, st=source_text: validate_source_text_anchor(la, st, novel_text)]),
                     _check_text_and_tier,
                     lambda la=label, tx=text, d=duration: validate_dialogue_load(
                         la, tx, d, source_language, speech_rate_override
@@ -1653,6 +1657,7 @@ async def generate_reference_script_plan(
             episode_outline=cast(dict[str, Any] | None, prompt_inputs["episode_outline"]),
             next_episode_outline=cast(dict[str, Any] | None, prompt_inputs["next_episode_outline"]),
             instructions=instructions,
+            is_premiere=episode_position(project, episode) == 1,
         )
 
         if request.dry_run:
@@ -1828,6 +1833,8 @@ async def generate_narration_script_plan(
             target_language=cast(str, prompt_inputs["target_language"]),
             episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
             instructions=instructions,
+            is_premiere=episode_position(project, episode) == 1,
+            hook_points=hook_points_slot(cast(dict[str, Any], project.get("overview") or {}).get("hook_points")),
         )
 
         if request.dry_run:

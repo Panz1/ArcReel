@@ -155,14 +155,33 @@ def test_build_reference_units_split_prompt_injects_episode_outline():
 
 def test_build_reference_units_split_prompt_skips_outline_without_content():
     prompt = _split_prompt(episode_outline={"title": "  ", "story_beats": [" ", 3]}, next_episode_outline={})
-    assert "<episode_outline>" not in prompt
-    assert "<next_episode_outline>" not in prompt
+    # 断言块渲染形态（块标签后紧跟换行）：正文规则里会以反引号提及 `<episode_outline>`
+    # 记号本身，按裸标签字面断言会被那段说明文字误伤。
+    assert "<episode_outline>\n" not in prompt
+    assert "<next_episode_outline>\n" not in prompt
 
 
 def test_build_reference_units_split_prompt_without_outline_leaves_no_empty_block():
     prompt = _split_prompt()
-    assert "<episode_outline>" not in prompt
-    assert "<next_episode_outline>" not in prompt
+    assert "<episode_outline>\n" not in prompt
+    assert "<next_episode_outline>\n" not in prompt
+
+
+def test_premiere_split_prompt_adds_opening_hook_rules():
+    """全剧首集（按播出顺序）在集首 30 秒之外叠加首集开场规则：闪前冷开场 + 打脸蓄力。"""
+    premiere = _split_prompt(is_premiere=True)
+    assert "首集开场" in premiere
+    assert "闪前冷开场" in premiere
+    assert "具体可见的压迫" in premiere
+    # 常规集不带首集条款，集首 30 秒规则照常在
+    assert "首集开场" not in _split_prompt()
+    assert "集首 30 秒" in _split_prompt()
+
+
+def test_premiere_prompt_authoring_keeps_unit1_visual_hook():
+    """首集 prompt_authoring：unit 1 的景别与构图按首集开场规则收紧。"""
+    assert "unit 1 的景别取近景 / 特写" in _prompt_authoring_prompt(is_premiere=True)
+    assert "unit 1 的景别" not in _prompt_authoring_prompt()
 
 
 def test_scene_reference_rule_reaches_both_prompt_levels():
@@ -262,7 +281,8 @@ def test_build_reference_units_split_prompt_scopes_default_to_its_tier():
         text_supported_durations=[4, 6, 8],
         default_duration=4,
     )
-    assert "unit 默认取 4 秒（该默认值只落在不带 `@` 引用的 unit 的档位内" in prompt
+    assert "unit 时长**默认取 4 秒**" in prompt
+    assert "该默认值只落在不带 `@` 引用的 unit 的档位内" in prompt
     # 两套档位都含该默认值时不加这段限定，避免无效措辞。
     plain = _split_prompt(supported_durations=[4, 6, 8], default_duration=4)
     assert "该默认值只落在" not in plain
@@ -320,20 +340,20 @@ class TestEpisodeTargetDurationInjection:
     def test_packing_no_longer_pushes_units_toward_the_per_call_ceiling(self):
         """打包口径是「连贯性优先的区间」，上界只受模型档位限制，且明确禁止凑满注水。"""
         prompt = _split_prompt()
-        assert "上界取单次上限 8 秒" in prompt
+        assert "上界是本型号单次上限 8 秒" in prompt
         assert "不要为凑满上界注水" in prompt
 
     def test_default_duration_overrides_the_generic_15s_preference(self):
         """按次计费的通道靠项目默认时长把段拉满：规则跟随默认偏好，不再写死 15 秒。"""
         prompt = _split_prompt(default_duration=30, max_duration=30, supported_durations=[30])
-        assert "按上面的默认偏好取 30 秒" in prompt
+        assert "目标长度：默认时长 30 秒" in prompt
         assert "取 15 秒左右" not in prompt
 
     def test_the_rule_coexists_with_the_default_duration_preference(self):
         """两条约束尺度不同（整集体量 vs 单 unit 秒数），须同时呈现而非互相取代。"""
         prompt = _split_prompt(default_duration=8, episode_target_duration=120)
         assert "本集成片目标时长约 120 秒" in prompt
-        assert "unit 默认取 8 秒" in prompt
+        assert "unit 时长**默认取 8 秒**" in prompt
 
 
 _CHARACTERS_WITH_DERIVATIVE = {

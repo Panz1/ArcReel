@@ -997,7 +997,13 @@ class ReferenceScriptPlanFlatUnit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元时长（秒）",
     )
-    source_text: str = Field(min_length=1, description="该单元所依据的小说原文逐字摘录（不转述、不翻译）")
+    # 非冷开场 unit 的非空与逐字约束由 validate_source_text_anchor 兜（比 schema 多出
+    # 「锚须落在本集源文区间内」这一层）；冷开场 unit 借用本集区间之外的场面，锚留空。
+    source_text: str = Field(default="", description="该单元所依据的小说原文逐字摘录（不转述、不翻译）；冷开场 unit 留空")
+    cold_open: bool = Field(
+        default=False,
+        description="是否为首集冷开场 unit（闪前借用本集源文区间之外的场面）；true 时 source_text 留空、不做锚校验",
+    )
     text: str = Field(min_length=1, description="该单元的引用语法正文：画面描述 + 行内的台词 / 画外音记号")
 
 

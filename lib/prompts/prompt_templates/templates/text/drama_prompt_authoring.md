@@ -23,6 +23,7 @@ slots:
   assets: 出场资产外观，对象 {characters, scenes, props}，每项是 [{name, appearance}] 列表（尖括号已中和）；调用方不提供资产块时传 null
   scenes_content: script_plan 已定稿分镜内容的渲染文本（由代码投影，含口播与原文锚）
   episode: 集号
+  is_premiere: 是否全剧首集（按播出顺序的第一集）；首集须套用开场钩子规则
   instructions: 附加指令正文；无时传 null
 protected: false
 ---
@@ -34,6 +35,9 @@ protected: false
 **结构约束**：字段 / 枚举 / 必填项由 response_schema 强制；本提示只解释**如何写好每个字段的内容**。
 
 {{ partial("shared/pacing/drama") }}
+{% if is_premiere %}
+{{ partial("shared/premiere_opening") }}
+{% endif %}
 
 # 上下文
 

@@ -22,8 +22,10 @@ const FAILURE_KEYS: Record<EpisodeTextTaskKind, string> = {
 };
 
 /**
- * 用户已关闭的失败提示：按 `task_id` 持久化，跨刷新 / 切集 / 重进集页都不应再弹（对齐组件注释
- * 「关掉后，直到下一次失败才再出现」的意图）。只记 task_id，新一次失败自然重新出现。
+ * 用户已「已读」的纯错误类失败提示：按 `task_id` 持久化，跨刷新 / 切集 / 重进集页都不应再弹。
+ * 注意：仅适用于「从未产出待修复草稿」的纯错误（模型超时、能力缺失等）——这类问题无状态可变，
+ * 关闭即视为已知。草稿类失败（违约落草稿、AI 修复失败）不做持久化关闭：问题状态可变，关闭只清静
+ * 当前挂载，重进后重新评估，草稿还 `needs_repair` 就重新提醒（真有问题才提示）。
  */
 const DISMISSED_KEY = "arcreel:dismissed-text-task-failures";
 const MAX_DISMISSED = 100;
@@ -90,10 +92,11 @@ function outstandingDraft(drafts: WorkflowDraft[] | null | undefined, kinds: Set
  * 挂在集页顶部，内容确认页、时间线与集原文页都看得到。
  *
  * 提示的显隐是状态驱动的：
- * - 违约失败落下的待修复草稿仍 `needs_repair` → 真问题还在，提示；
- * - 那份草稿已晋升 / 丢弃 → 问题已解决，自动消失（无需手动关闭）；
- * - 纯错误（模型超时、能力缺失等从未产生草稿）→ 没有可解的草稿，照常提示，由用户关闭。
- * 用户手动关闭后按 `task_id` 持久化，刷新 / 切集 / 重进集页不再弹，直到下一次失败。
+ * - 违约失败落下的待修复草稿仍 `needs_repair` → 真问题还在，提示；手动关闭只清静本次挂载，
+ *   刷新 / 切集 / 重进集页后重新评估，草稿还在就重新提醒（关闭不等于问题已解决）。
+ * - 那份草稿已晋升 / 丢弃 → 问题已解决，自动消失（无需手动关闭）。
+ * - 纯错误（模型超时、能力缺失等从未产生草稿）→ 没有可解的草稿，照常提示；关闭后置为「已读」
+ *   并持久化，刷新 / 切集 / 重进集页不再弹，直到下一次失败。
  *
  * 摘要只显示后端按界面语言渲染的原因；问题码、参数与服务端原文收进可展开的「详情」。后端没能把原因
  * 本地化时（外部或未知错误）不带原文字段，原文本身就是摘要，也就没有详情。
@@ -120,12 +123,13 @@ export function TextTaskFailureNote({
 
   if (failure === null) return null;
   const task = failure.task;
+  // 该失败是否产生了一份待修复草稿（草稿类失败，状态可变）；纯错误为 false。
+  const kinds = draftKindsForFailure(task);
+  const isDraftFailure = kinds.size > 0 && producedDraft(task);
   const isDismissed = dismissed.has(task.task_id) || sessionDismissed === task.task_id;
 
   // 状态驱动：产生过待修复草稿的失败，其草稿已晋升 / 丢弃 → 问题已解决，不再提示。
-  const kinds = draftKindsForFailure(task);
-  const draftResolved =
-    content !== null && kinds.size > 0 && producedDraft(task) && !outstandingDraft(content.drafts, kinds);
+  const draftResolved = content !== null && isDraftFailure && !outstandingDraft(content.drafts, kinds);
 
   if (isDismissed || draftResolved) return null;
 
@@ -170,11 +174,14 @@ export function TextTaskFailureNote({
         size="icon-xs"
         aria-label={t("common:close")}
         onClick={() => {
+          // 草稿类失败只静音当前挂载（问题状态可变，重进后重新评估）；纯错误才持久化为「已读」。
           setSessionDismissed(task.task_id);
-          const next = new Set(dismissed);
-          next.add(task.task_id);
-          setDismissed(next);
-          saveDismissed(next);
+          if (!isDraftFailure) {
+            const next = new Set(dismissed);
+            next.add(task.task_id);
+            setDismissed(next);
+            saveDismissed(next);
+          }
         }}
       >
         <X aria-hidden />

@@ -214,6 +214,40 @@ describe("TextTaskFailureNote", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("上一次编写提示词失败");
   });
 
+  it("re-surfaces a draft violation failure after dismiss when its draft is still outstanding", () => {
+    // 违约失败：报告原文带「待修复草稿」，对应 reference_video_prompt_authoring 草稿种类。
+    useTasksStore.setState({
+      tasks: [
+        failed({
+          task_id: "pa-failed",
+          task_type: "text_episode_script",
+          resource_id: "episode-1",
+          error_message: "❌ prompt_authoring 提示词编写产出有 1 处违约，已保存为待修复草稿（正式文件未被改动）：drafts/1_...json",
+        }),
+      ],
+    });
+    setWorkflowDrafts([
+      { kind: "reference_video_prompt_authoring", path: "drafts/episode_1/pa.json", needs_repair: true },
+    ]);
+    const { unmount } = render(
+      <Router hook={memoryLocation({ path: "/episodes/1" }).hook} searchHook={memoryLocation({ path: "/episodes/1" }).searchHook}>
+        <TextTaskFailureNote projectName="demo" episode={1} isAd={false} hasScript />
+      </Router>,
+    );
+    // 用户手动关闭（草稿类失败只静音当前挂载，不持久化）。
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // 重进集页：草稿仍在 needs_repair（真问题没解决）→ 重新弹出，而不是被关闭压住。
+    unmount();
+    render(
+      <Router hook={memoryLocation({ path: "/episodes/1" }).hook} searchHook={memoryLocation({ path: "/episodes/1" }).searchHook}>
+        <TextTaskFailureNote projectName="demo" episode={1} isAd={false} hasScript />
+      </Router>,
+    );
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+  });
+
   it("keeps a pure failure (no draft produced) visible even when no draft is present", () => {
     // 模型超时：error_message 不含「待修复草稿」，是纯错误，不应因草稿不在场而隐藏。
     useTasksStore.setState({
